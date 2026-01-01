@@ -1,0 +1,1 @@
+"""ReviewBuddy application package."""
