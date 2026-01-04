@@ -12,7 +12,7 @@ from app.services.usage_tracker import UsageTracker
 settings = get_settings()
 
 lane_refiner_agent = Agent(
-    model=settings.default_model,
+    model=settings.refiner_model,
     output_type=LaneRefinement,
     deps_type=AgentDeps,
     model_settings=ModelSettings(temperature=settings.agent_temperature, tool_choice="auto"),
@@ -62,6 +62,6 @@ async def refine_lane_queries(
         deps=deps,
     )
     if usage_tracker is not None:
-        await usage_tracker.add(result.usage())
+        await usage_tracker.add(result.usage(), model_name=model_name or settings.refiner_model)
     _ = time.perf_counter() - start
     return result.output

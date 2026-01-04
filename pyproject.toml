@@ -11,7 +11,7 @@ dependencies = [
     "pydantic-ai>=0.0.17",
     "httpx>=0.28.0",
     "openai>=1.0.0",
-    "openai-whisper>=20231117",
+    "openai-whisper>=20250625",
     "praw>=7.7.1",
     "python-dotenv>=1.0.1",
     "google-genai>=1.0.0",
@@ -19,7 +19,8 @@ dependencies = [
     "rich>=13.0.0",
     "playwright>=1.50.0",
     "crawl4ai>=0.7.0",
-    "youtube-dl>=2021.12.17",
+    "yt-dlp>=2025.12.8",
+    "tokonomics>=1.2.14 ; python_full_version >= '3.13'",
 ]
 
 [project.scripts]

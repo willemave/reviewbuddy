@@ -1,7 +1,10 @@
 from app.services.url_handlers import (
     RedditComment,
+    RedditPost,
+    _extract_subreddit_name,
     format_pdf_markdown,
     format_reddit_markdown,
+    format_reddit_subreddit_markdown,
     format_youtube_markdown,
     is_pdf_url,
     is_reddit_url,
@@ -55,3 +58,31 @@ def test_format_pdf_markdown() -> None:
     )
     assert "PDF Summary" in markdown
     assert "https://example.com/file.pdf" in markdown
+
+
+def test_extract_subreddit_name() -> None:
+    assert _extract_subreddit_name("https://www.reddit.com/r/coffeeswap/") == "coffeeswap"
+    assert _extract_subreddit_name("https://www.reddit.com/r/test/comments/abc123") == "test"
+    assert _extract_subreddit_name("https://example.com") is None
+
+
+def test_format_reddit_subreddit_markdown() -> None:
+    posts = [
+        RedditPost(
+            title="Post One",
+            url="https://www.reddit.com/r/test/comments/abc123/post_one/",
+            score=10,
+            num_comments=5,
+            author="alice",
+            selftext="Some details",
+        )
+    ]
+    markdown = format_reddit_subreddit_markdown(
+        title="r/test",
+        url="https://www.reddit.com/r/test/",
+        posts=posts,
+        max_post_chars=200,
+    )
+    assert "r/test" in markdown
+    assert "Post One" in markdown
+    assert "https://www.reddit.com/r/test/" in markdown

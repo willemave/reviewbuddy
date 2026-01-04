@@ -7,8 +7,10 @@ from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 
-import youtube_dl
+import yt_dlp
 from pydantic import BaseModel
+
+from app.core.settings import get_settings
 
 
 class YouTubeError(RuntimeError):
@@ -69,7 +71,7 @@ def _dedupe_videos(videos: Iterable[YouTubeVideo]) -> list[YouTubeVideo]:
 
 
 def select_youtube_videos(entries: Iterable[dict], max_videos: int) -> list[YouTubeVideo]:
-    """Select unique YouTube videos from youtube-dl search entries.
+    """Select unique YouTube videos from yt-dlp search entries.
 
     Args:
         entries: Iterable of youtube-dl entries.
@@ -98,7 +100,7 @@ def select_youtube_videos(entries: Iterable[dict], max_videos: int) -> list[YouT
 
 
 def search_youtube(prompt: str, max_videos: int) -> list[YouTubeVideo]:
-    """Search YouTube via youtube-dl.
+    """Search YouTube via yt-dlp.
 
     Args:
         prompt: User prompt.
@@ -113,13 +115,17 @@ def search_youtube(prompt: str, max_videos: int) -> list[YouTubeVideo]:
 
     ydl_opts = {
         "quiet": True,
+        "no_warnings": True,
         "skip_download": True,
         "extract_flat": True,
         "default_search": f"ytsearch{max_videos}",
     }
 
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(prompt, download=False)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(prompt, download=False)
+    except Exception as exc:
+        raise YouTubeError(f"YouTube search failed: {exc}") from exc
 
     entries = info.get("entries", []) if isinstance(info, dict) else []
     return select_youtube_videos(entries, max_videos)
@@ -141,6 +147,7 @@ def download_audio(video_url: str, output_dir: Path) -> tuple[Path, str | None]:
         "format": "bestaudio/best",
         "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
         "quiet": True,
+        "no_warnings": True,
         "noplaylist": True,
         "postprocessors": [
             {
@@ -151,8 +158,11 @@ def download_audio(video_url: str, output_dir: Path) -> tuple[Path, str | None]:
         ],
     }
 
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(video_url, download=True)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+    except Exception as exc:
+        raise YouTubeError(f"YouTube download failed: {exc}") from exc
 
     if not isinstance(info, dict):
         raise YouTubeError("Failed to download YouTube audio")
@@ -163,14 +173,43 @@ def download_audio(video_url: str, output_dir: Path) -> tuple[Path, str | None]:
     return audio_path, info.get("title")
 
 
+def _resolve_whisper_device(device_setting: str) -> str:
+    try:
+        import torch
+    except ImportError as exc:
+        raise YouTubeError("Torch is required for Whisper") from exc
+
+    if device_setting != "auto":
+        return device_setting
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        # MPS can be unstable with Whisper; default to CPU.
+        return "cpu"
+    return "cpu"
+
+
 @lru_cache
-def _load_whisper_model(model_name: str):
+def _load_whisper_model(model_name: str, device: str):
     try:
         import whisper
     except ImportError as exc:
         raise YouTubeError("Whisper is not installed") from exc
 
-    return whisper.load_model(model_name)
+    return whisper.load_model(model_name, device=device)
+
+
+def _load_audio_samples(audio_path: Path):
+    try:
+        import whisper
+    except ImportError as exc:
+        raise YouTubeError("Whisper is not installed") from exc
+
+    try:
+        return whisper.load_audio(str(audio_path))
+    except Exception as exc:
+        raise YouTubeError(f"Failed to decode audio: {exc}") from exc
 
 
 def transcribe_audio(audio_path: Path, model_name: str) -> str:
@@ -184,9 +223,45 @@ def transcribe_audio(audio_path: Path, model_name: str) -> str:
         Transcript text.
     """
 
-    model = _load_whisper_model(model_name)
-    result = model.transcribe(str(audio_path))
-    text = result.get("text", "")
+    if not audio_path.exists():
+        raise YouTubeError("Audio file missing for Whisper")
+    if audio_path.stat().st_size == 0:
+        raise YouTubeError("Audio file is empty")
+
+    audio = _load_audio_samples(audio_path)
+    if not hasattr(audio, "__len__") or len(audio) == 0:
+        raise YouTubeError("Audio decode returned no samples")
+
+    settings = get_settings()
+    device = _resolve_whisper_device(settings.whisper_device)
+    model = _load_whisper_model(model_name, device)
+    try:
+        result = model.transcribe(
+            str(audio_path),
+            fp16=device != "cpu",
+            language=None,
+            task="transcribe",
+            verbose=False,
+        )
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if "cannot reshape tensor of 0 elements" in message:
+            raise YouTubeError("Whisper failed on empty audio") from exc
+        if ("mps" in message or "sparse" in message or "_sparse_coo_tensor" in message) and (
+            device != "cpu"
+        ):
+            cpu_model = _load_whisper_model(model_name, "cpu")
+            result = cpu_model.transcribe(
+                str(audio_path),
+                fp16=False,
+                language=None,
+                task="transcribe",
+                verbose=False,
+            )
+        else:
+            raise YouTubeError(f"Whisper failed: {exc}") from exc
+
+    text = result.get("text", "") if isinstance(result, dict) else ""
     return text.strip()
 
 

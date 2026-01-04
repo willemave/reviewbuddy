@@ -135,6 +135,86 @@ async def create_run(db_path: Path, run: RunRecord) -> None:
         await conn.commit()
 
 
+async def fetch_run(db_path: Path, run_id: str) -> RunRecord | None:
+    """Fetch a run record by ID.
+
+    Args:
+        db_path: SQLite path.
+        run_id: Run identifier.
+
+    Returns:
+        RunRecord if found, otherwise None.
+    """
+
+    async with aiosqlite.connect(db_path) as conn:
+        cursor = await conn.execute(
+            """
+            SELECT run_id, prompt, created_at, status, max_urls, max_agents, headful, output_dir
+            FROM runs
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        )
+        row = await cursor.fetchone()
+
+    if row is None:
+        return None
+
+    created_at = datetime.fromisoformat(row[2])
+    return RunRecord(
+        run_id=row[0],
+        prompt=row[1],
+        created_at=created_at,
+        status=row[3],
+        max_urls=int(row[4]),
+        max_agents=int(row[5]),
+        headful=bool(row[6]),
+        output_dir=Path(row[7]),
+    )
+
+
+async def list_runs(db_path: Path, limit: int = 20) -> list[RunRecord]:
+    """List recent run records.
+
+    Args:
+        db_path: SQLite path.
+        limit: Max number of runs to return.
+
+    Returns:
+        List of RunRecord entries ordered by created_at desc.
+    """
+
+    async with aiosqlite.connect(db_path) as conn:
+        cursor = await conn.execute(
+            """
+            SELECT run_id, prompt, created_at, status, max_urls, max_agents, headful, output_dir
+            FROM runs
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+
+    records: list[RunRecord] = []
+    for row in rows:
+        created_at = datetime.fromisoformat(row[2])
+        records.append(
+            RunRecord(
+                run_id=row[0],
+                prompt=row[1],
+                created_at=created_at,
+                status=row[3],
+                max_urls=int(row[4]),
+                max_agents=int(row[5]),
+                headful=bool(row[6]),
+                output_dir=Path(row[7]),
+            )
+        )
+
+    return records
+
+
 async def update_run_status(db_path: Path, run_id: str, status: str) -> None:
     """Update run status.
 

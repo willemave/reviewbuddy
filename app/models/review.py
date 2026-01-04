@@ -3,7 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ReviewRunRequest(BaseModel):
@@ -14,6 +14,18 @@ class ReviewRunRequest(BaseModel):
     max_agents: int
     headful: bool
     navigation_timeout_ms: int
+    output_dir: Path
+    planner_model: str | None = None
+    sub_agent_model: str | None = None
+
+
+class ReviewRunConfig(BaseModel):
+    """Runtime configuration for a review run."""
+
+    max_urls: int = Field(ge=1, le=1000)
+    max_agents: int = Field(ge=1, le=25)
+    headful: bool
+    navigation_timeout_ms: int = Field(ge=1000, le=120000)
     output_dir: Path
     planner_model: str | None = None
     sub_agent_model: str | None = None

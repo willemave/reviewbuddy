@@ -12,7 +12,7 @@ from app.services.usage_tracker import UsageTracker
 settings = get_settings()
 
 lane_planner_agent = Agent(
-    model=settings.default_model,
+    model=settings.planner_model,
     output_type=LanePlan,
     deps_type=AgentDeps,
     model_settings=ModelSettings(temperature=settings.agent_temperature, tool_choice="auto"),
@@ -58,6 +58,6 @@ async def plan_lanes(
         deps=deps,
     )
     if usage_tracker is not None:
-        await usage_tracker.add(result.usage())
+        await usage_tracker.add(result.usage(), model_name=model_name or settings.planner_model)
     _ = time.perf_counter() - start
     return result.output

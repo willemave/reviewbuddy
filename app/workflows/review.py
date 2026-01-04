@@ -19,6 +19,7 @@ from app.services.exa_client import ExaError, search_exa
 from app.services.markdown_converter import MarkdownError, html_file_to_markdown
 from app.services.playwright_fetcher import FetchError, capture_html, should_retry_headful
 from app.services.query_shaper import QueryShapeRequest, shape_query
+from app.services.reporter import RunReporter
 from app.services.storage import (
     build_run_paths,
     create_run,
@@ -43,12 +44,30 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
-async def run_review(request: ReviewRunRequest, deps: AgentDeps) -> ReviewRunResult:
+def _emit_reporter(
+    reporter: RunReporter | None,
+    attr: str,
+    *args,
+) -> None:
+    if reporter is None:
+        return
+    handler = getattr(reporter, attr, None)
+    if handler is None:
+        return
+    handler(*args)
+
+
+async def run_review(
+    request: ReviewRunRequest,
+    deps: AgentDeps,
+    reporter: RunReporter | None = None,
+) -> ReviewRunResult:
     """Run the full review research workflow.
 
     Args:
         request: Review run request.
         deps: Agent dependencies.
+        reporter: Optional progress reporter callbacks.
 
     Returns:
         ReviewRunResult with synthesis markdown.
@@ -89,6 +108,7 @@ async def run_review(request: ReviewRunRequest, deps: AgentDeps) -> ReviewRunRes
                 run_paths["transcripts"],
                 settings.youtube_max_videos,
                 settings.whisper_model,
+                usage_tracker=usage_tracker,
             )
 
         lane_plan = await plan_lanes(
@@ -100,6 +120,7 @@ async def run_review(request: ReviewRunRequest, deps: AgentDeps) -> ReviewRunRes
         lanes = _select_lanes(lane_plan.lanes, request.max_agents)
         lanes = _allocate_lane_budgets(lanes, request.max_urls)
         logger.info("Planned %d lanes", len(lanes))
+        _emit_reporter(reporter, "on_lanes_planned", len(lanes))
         for lane in lanes:
             logger.info(
                 "Lane planned: %s",
@@ -124,6 +145,7 @@ async def run_review(request: ReviewRunRequest, deps: AgentDeps) -> ReviewRunRes
                         deps=deps,
                         usage_tracker=usage_tracker,
                         model_name=request.sub_agent_model,
+                        reporter=reporter,
                     )
                     for lane in lanes
                 ]
@@ -218,6 +240,7 @@ async def _run_lane(
     deps: AgentDeps,
     usage_tracker: UsageTracker | None = None,
     model_name: str | None = None,
+    reporter: RunReporter | None = None,
 ) -> LaneResult:
     budget = lane.url_budget or 0
     seen_urls: set[str] = set()
@@ -240,6 +263,7 @@ async def _run_lane(
         lane.name,
         len(initial_tasks),
     )
+    _emit_reporter(reporter, "on_urls_discovered", len(initial_tasks))
 
     await _store_url_records(run_id, initial_tasks)
 
@@ -256,6 +280,8 @@ async def _run_lane(
             headful_fallback,
             run_paths,
             timeout_ms,
+            usage_tracker,
+            reporter,
         )
 
         budget_remaining = max(0, budget - len(initial_tasks))
@@ -289,6 +315,7 @@ async def _run_lane(
                     lane.name,
                     len(new_tasks),
                 )
+                _emit_reporter(reporter, "on_urls_discovered", len(new_tasks))
 
         await _crawl_tasks(
             run_id,
@@ -297,6 +324,8 @@ async def _run_lane(
             headful_fallback,
             run_paths,
             timeout_ms,
+            usage_tracker,
+            reporter,
         )
     finally:
         await context.close()
@@ -311,6 +340,7 @@ async def _run_lane(
         lane.name,
         extra={"total_urls": len(initial_tasks) + len(remaining_tasks)},
     )
+    _emit_reporter(reporter, "on_lane_done", lane.name)
 
     return LaneResult(
         lane_name=lane.name, goal=lane.goal, url_tasks=initial_tasks + remaining_tasks
@@ -493,6 +523,7 @@ async def _collect_youtube_transcripts(
     transcripts_dir: Path,
     max_videos: int,
     model_name: str,
+    usage_tracker: UsageTracker | None = None,
 ) -> list[YouTubeTranscript]:
     """Collect and transcribe YouTube videos in a background thread."""
 
@@ -503,7 +534,7 @@ async def _collect_youtube_transcripts(
     logger.info("Collecting up to %d YouTube videos", bounded_max)
 
     try:
-        return await asyncio.to_thread(
+        transcripts = await asyncio.to_thread(
             transcribe_youtube_videos,
             prompt,
             bounded_max,
@@ -511,6 +542,9 @@ async def _collect_youtube_transcripts(
             transcripts_dir,
             model_name,
         )
+        if usage_tracker is not None and transcripts:
+            await usage_tracker.add_source("youtube", count=len(transcripts))
+        return transcripts
     except YouTubeError as exc:
         logger.warning("YouTube ingestion failed: %s", exc)
         return []
@@ -519,7 +553,7 @@ async def _collect_youtube_transcripts(
 async def _snapshot_usage(usage_tracker: UsageTracker | None) -> UsageSnapshot | None:
     if usage_tracker is None:
         return None
-    return await usage_tracker.snapshot()
+    return await usage_tracker.snapshot(include_costs=True)
 
 
 def _log_usage_snapshot(snapshot: UsageSnapshot) -> None:
@@ -530,6 +564,16 @@ def _log_usage_snapshot(snapshot: UsageSnapshot) -> None:
         snapshot.total_tokens,
         snapshot.requests,
     )
+    if snapshot.cost_total is not None:
+        logger.info("LLM cost total: $%.6f", snapshot.cost_total)
+    if snapshot.cost_unavailable_models:
+        logger.info(
+            "LLM cost unavailable for models: %s",
+            ", ".join(snapshot.cost_unavailable_models),
+        )
+    if snapshot.sources:
+        sources = ", ".join(f"{key}={value}" for key, value in sorted(snapshot.sources.items()))
+        logger.info("Source counts: %s", sources)
 
 
 async def _crawl_tasks(
@@ -539,9 +583,20 @@ async def _crawl_tasks(
     headful_fallback: dict,
     run_paths: dict[str, Path],
     timeout_ms: int,
+    usage_tracker: UsageTracker | None,
+    reporter: RunReporter | None,
 ) -> None:
     for task in url_tasks:
-        await _crawl_single(run_id, task, context, headful_fallback, run_paths, timeout_ms)
+        await _crawl_single(
+            run_id,
+            task,
+            context,
+            headful_fallback,
+            run_paths,
+            timeout_ms,
+            usage_tracker,
+            reporter,
+        )
 
 
 async def _crawl_single(
@@ -551,11 +606,19 @@ async def _crawl_single(
     headful_fallback: dict,
     run_paths: dict[str, Path],
     timeout_ms: int,
+    usage_tracker: UsageTracker | None,
+    reporter: RunReporter | None,
 ) -> None:
     custom_content = await _maybe_fetch_custom_content(task.url, run_paths)
     if custom_content is not None:
         await _store_custom_fetched(run_id, task.url, custom_content, run_paths)
         logger.info("Fetched via custom handler: %s (%s)", task.url, custom_content.source)
+        if usage_tracker is not None:
+            await usage_tracker.add_source(custom_content.source)
+            if custom_content.usage is not None:
+                await usage_tracker.add(
+                    custom_content.usage, model_name=custom_content.model_name
+                )
         return
 
     page = await context.new_page()
@@ -563,6 +626,9 @@ async def _crawl_single(
         logger.debug("Fetching url: %s", task.url)
         html = await capture_html(page, task.url, timeout_ms=timeout_ms)
         await _store_fetched(run_id, task.url, html, run_paths)
+        if usage_tracker is not None:
+            await usage_tracker.add_source("web")
+        _emit_reporter(reporter, "on_url_done", True)
         logger.debug("Fetched url: %s", task.url)
     except FetchError as exc:
         if should_retry_headful(exc) and headful_fallback.get("enabled"):
@@ -571,6 +637,9 @@ async def _crawl_single(
                     headful_fallback, task.url, timeout_ms
                 )
                 await _store_fetched(run_id, task.url, html, run_paths)
+                if usage_tracker is not None:
+                    await usage_tracker.add_source("web")
+                _emit_reporter(reporter, "on_url_done", True)
                 logger.info("Fetched url via headful retry: %s", task.url)
                 return
             except FetchError as headful_exc:
@@ -582,9 +651,11 @@ async def _crawl_single(
                 exc = headful_exc
         logger.warning("Failed url: %s (%s)", task.url, exc)
         await mark_url_failed(settings.database_path, run_id=run_id, url=task.url, error=str(exc))
+        _emit_reporter(reporter, "on_url_done", False)
     except MarkdownError as exc:
         logger.warning("Failed url: %s (%s)", task.url, exc)
         await mark_url_failed(settings.database_path, run_id=run_id, url=task.url, error=str(exc))
+        _emit_reporter(reporter, "on_url_done", False)
     finally:
         await page.close()
 
@@ -686,5 +757,21 @@ async def _synthesize(
                 f"- Requests: {usage_snapshot.requests}",
             ]
         )
+        if usage_snapshot.sources:
+            source_counts = ", ".join(
+                f"{key}={value}" for key, value in sorted(usage_snapshot.sources.items())
+            )
+            lines.append(f"- Sources: {source_counts}")
+        if usage_snapshot.cost_total is not None:
+            lines.append(f"- Total cost: ${usage_snapshot.cost_total:.6f}")
+        if usage_snapshot.cost_by_model:
+            model_costs = ", ".join(
+                f"{model}=${cost.total_cost:.6f}"
+                for model, cost in sorted(usage_snapshot.cost_by_model.items())
+            )
+            lines.append(f"- Cost by model: {model_costs}")
+        if usage_snapshot.cost_unavailable_models:
+            missing = ", ".join(usage_snapshot.cost_unavailable_models)
+            lines.append(f"- Cost unavailable for: {missing}")
 
     return "\n".join(lines), usage_snapshot or UsageSnapshot(0, 0, 0)

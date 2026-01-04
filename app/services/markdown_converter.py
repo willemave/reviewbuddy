@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from crawl4ai import AsyncWebCrawler, CacheMode, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 
 
 class MarkdownError(RuntimeError):
@@ -23,9 +23,10 @@ async def html_file_to_markdown(html_path: Path) -> str:
         raise MarkdownError(f"HTML file missing: {html_path}")
 
     url = html_path.resolve().as_uri()
-    config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
+    browser_config = BrowserConfig(headless=True, verbose=False)
+    config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS, verbose=False, log_console=False)
 
-    async with AsyncWebCrawler() as crawler:
+    async with AsyncWebCrawler(config=browser_config) as crawler:
         result = await crawler.arun(url=url, config=config)
 
     if not result.success:

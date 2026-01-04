@@ -12,7 +12,7 @@ from app.services.usage_tracker import UsageTracker
 settings = get_settings()
 
 synthesizer_agent = Agent(
-    model=settings.default_model,
+    model=settings.synthesizer_model,
     output_type=ReviewSynthesis,
     deps_type=AgentDeps,
     model_settings=ModelSettings(temperature=0.4, tool_choice="auto"),
@@ -55,6 +55,6 @@ async def synthesize_review(
         deps=deps,
     )
     if usage_tracker is not None:
-        await usage_tracker.add(result.usage())
+        await usage_tracker.add(result.usage(), model_name=model_name or settings.synthesizer_model)
     _ = time.perf_counter() - start
     return result.output

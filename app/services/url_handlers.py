@@ -10,6 +10,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from praw.exceptions import InvalidURL
+from pydantic_ai.usage import RunUsage
 
 from app.core.settings import get_settings
 from app.services.storage import url_to_filename
@@ -29,6 +31,8 @@ class CustomContent:
     html: str
     markdown: str
     source: str
+    usage: RunUsage | None = None
+    model_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,16 @@ class RedditComment:
     author: str | None
     body: str
     score: int | None
+
+
+@dataclass(frozen=True)
+class RedditPost:
+    title: str
+    url: str
+    score: int | None
+    num_comments: int | None
+    author: str | None
+    selftext: str | None
 
 
 def is_reddit_url(url: str) -> bool:
@@ -112,6 +126,31 @@ def format_pdf_markdown(
     return f"# {title}\nURL: {url}\n\n{snippet}".strip()
 
 
+def format_reddit_subreddit_markdown(
+    title: str,
+    url: str,
+    posts: Iterable[RedditPost],
+    max_post_chars: int,
+) -> str:
+    """Render subreddit listing to markdown."""
+
+    lines = [f"# {title}", f"URL: {url}", "", "## Top Posts"]
+    for post in posts:
+        score = post.score if post.score is not None else "n/a"
+        comments = post.num_comments if post.num_comments is not None else "n/a"
+        lines.append(
+            f"- **{post.title}** (score: {score}, comments: {comments}) {post.url}"
+        )
+        if post.selftext:
+            snippet = post.selftext.strip()
+            if max_post_chars > 0:
+                snippet = snippet[:max_post_chars]
+            if snippet:
+                lines.append(f"  {snippet}")
+
+    return "\n".join(lines).strip()
+
+
 def _get_reddit_client() -> Any | None:
     if not settings.reddit_client_id or not settings.reddit_client_secret:
         logger.warning("Reddit credentials not configured; skipping Reddit handler")
@@ -147,6 +186,51 @@ def _get_reddit_client() -> Any | None:
     return reddit
 
 
+def _extract_subreddit_name(url: str) -> str | None:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and parts[0] == "r":
+        return parts[1]
+    return None
+
+
+def _fetch_reddit_subreddit_content(client: Any, url: str) -> CustomContent | None:
+    subreddit_name = _extract_subreddit_name(url)
+    if not subreddit_name:
+        return None
+
+    subreddit = client.subreddit(subreddit_name)
+    posts: list[RedditPost] = []
+    for submission in subreddit.hot(limit=settings.reddit_post_limit):
+        posts.append(
+            RedditPost(
+                title=submission.title or "Untitled",
+                url=f"https://www.reddit.com{submission.permalink}",
+                score=getattr(submission, "score", None),
+                num_comments=getattr(submission, "num_comments", None),
+                author=getattr(getattr(submission, "author", None), "name", None),
+                selftext=getattr(submission, "selftext", None),
+            )
+        )
+        if len(posts) >= settings.reddit_post_limit:
+            break
+
+    if not posts:
+        return None
+
+    markdown = format_reddit_subreddit_markdown(
+        title=f"r/{subreddit_name}",
+        url=url,
+        posts=posts,
+        max_post_chars=settings.reddit_comment_max_chars,
+    )
+    html = f"<pre>{markdown}</pre>"
+    return CustomContent(html=html, markdown=markdown, source="reddit")
+
+
 def fetch_reddit_content(url: str) -> CustomContent | None:
     """Fetch Reddit thread via API and render markdown."""
 
@@ -154,9 +238,12 @@ def fetch_reddit_content(url: str) -> CustomContent | None:
     if client is None:
         return None
 
-    submission = client.submission(url=url)
-    submission.comment_sort = "top"
-    submission.comments.replace_more(limit=0)
+    try:
+        submission = client.submission(url=url)
+        submission.comment_sort = "top"
+        submission.comments.replace_more(limit=0)
+    except InvalidURL:
+        return _fetch_reddit_subreddit_content(client, url)
 
     comments: list[RedditComment] = []
     for comment in submission.comments.list():
@@ -216,7 +303,7 @@ def fetch_youtube_content(
     return CustomContent(html=html, markdown=markdown, source="youtube")
 
 
-def _summarize_pdf_with_gemini(pdf_path: Path, source_url: str) -> str:
+def _summarize_pdf_with_gemini(pdf_path: Path, source_url: str) -> tuple[str, RunUsage | None]:
     from pydantic_ai import Agent, DocumentUrl
     from pydantic_ai.models.google import GoogleModel
     from pydantic_ai.providers.google import GoogleProvider
@@ -239,7 +326,7 @@ def _summarize_pdf_with_gemini(pdf_path: Path, source_url: str) -> str:
         f"{source_url}"
     )
     result = agent.run_sync([prompt, document])
-    return result.output
+    return result.output, result.usage()
 
 
 def fetch_pdf_content(url: str, pdf_dir: Path) -> CustomContent | None:
@@ -264,7 +351,7 @@ def fetch_pdf_content(url: str, pdf_dir: Path) -> CustomContent | None:
     pdf_path = pdf_dir / url_to_filename(url, ".pdf")
     pdf_path.write_bytes(content)
 
-    summary = _summarize_pdf_with_gemini(pdf_path, url)
+    summary, usage = _summarize_pdf_with_gemini(pdf_path, url)
     markdown = format_pdf_markdown(
         title="PDF Summary",
         url=url,
@@ -272,7 +359,13 @@ def fetch_pdf_content(url: str, pdf_dir: Path) -> CustomContent | None:
         max_chars=settings.pdf_summary_max_chars,
     )
     html = f"<pre>{markdown}</pre>"
-    return CustomContent(html=html, markdown=markdown, source="pdf")
+    return CustomContent(
+        html=html,
+        markdown=markdown,
+        source="pdf",
+        usage=usage,
+        model_name=settings.pdf_model_name,
+    )
 
 
 def fetch_custom_content(

@@ -1,4 +1,10 @@
-from app.services.youtube_transcriber import select_youtube_videos
+import pytest
+
+from app.services.youtube_transcriber import (
+    YouTubeError,
+    select_youtube_videos,
+    transcribe_audio,
+)
 
 
 def test_select_youtube_videos_limits_and_dedupes() -> None:
@@ -18,3 +24,28 @@ def test_select_youtube_videos_ignores_non_youtube() -> None:
     entries = [{"url": "https://example.com/not-youtube", "title": "Nope"}]
     videos = select_youtube_videos(entries, max_videos=3)
     assert videos == []
+
+
+def test_transcribe_audio_rejects_empty_file(tmp_path) -> None:
+    audio_path = tmp_path / "empty.mp3"
+    audio_path.write_bytes(b"")
+
+    with pytest.raises(YouTubeError) as excinfo:
+        transcribe_audio(audio_path, model_name="base")
+    assert "empty" in str(excinfo.value).lower()
+
+
+def test_transcribe_audio_rejects_empty_samples(tmp_path, monkeypatch) -> None:
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"data")
+
+    monkeypatch.setattr(
+        "app.services.youtube_transcriber._load_audio_samples", lambda _: []
+    )
+    monkeypatch.setattr(
+        "app.services.youtube_transcriber._load_whisper_model", lambda _: object()
+    )
+
+    with pytest.raises(YouTubeError) as excinfo:
+        transcribe_audio(audio_path, model_name="base")
+    assert "no samples" in str(excinfo.value).lower()

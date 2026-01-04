@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,6 +32,9 @@ class Settings(BaseSettings):
 
     # LLM
     default_model: str = "gpt-5.2"
+    planner_model: str = "claude-opus-4-5"
+    refiner_model: str = "claude-haiku-4-5"
+    synthesizer_model: str = "gemini-3-flash-preview"
     agent_timeout_seconds: int = 120
     agent_temperature: float = 0.6
 
@@ -38,7 +42,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Crawling
-    max_urls: int = Field(default=300, ge=1, le=1000)
+    max_urls: int = Field(default=100, ge=1, le=1000)
     max_agents: int = Field(default=10, ge=1, le=25)
     headful: bool = True
     navigation_timeout_ms: int = Field(default=20000, ge=1000, le=120000)
@@ -58,6 +62,7 @@ class Settings(BaseSettings):
     reddit_password: str | None = None
     reddit_read_only: bool = True
     reddit_user_agent: str | None = None
+    reddit_post_limit: int = Field(default=10, ge=1, le=50)
     reddit_comment_limit: int = Field(default=10, ge=1, le=50)
     reddit_comment_max_chars: int = Field(default=500, ge=100, le=2000)
 
@@ -75,6 +80,7 @@ class Settings(BaseSettings):
     # YouTube + Whisper
     youtube_max_videos: int = Field(default=3, ge=0, le=3)
     whisper_model: str = "base"
+    whisper_device: str = "auto"
     youtube_transcript_max_chars: int = Field(default=6000, ge=500, le=20000)
 
     # Markdown
@@ -85,4 +91,13 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
 
+    _load_env()
     return Settings()
+
+
+def _load_env() -> None:
+    """Force-load .env from repo root with override."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    env_path = repo_root / ".env"
+    load_dotenv(env_path, override=True)

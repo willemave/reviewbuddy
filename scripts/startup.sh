@@ -60,7 +60,7 @@ done
 
 args=("$@")
 if [ "$has_max_urls" = false ]; then
-  args+=(--max-urls "${REVIEWBUDDY_MAX_URLS:-40}")
+  args+=(--max-urls "${REVIEWBUDDY_MAX_URLS:-100}")
 fi
 if [ "$has_max_agents" = false ]; then
   args+=(--max-agents "${REVIEWBUDDY_MAX_AGENTS:-3}")
