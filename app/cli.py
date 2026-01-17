@@ -174,9 +174,7 @@ def interactive(
                         continue
                     if current_report is None:
                         current_report = ""
-                    current_prompt = build_followup_prompt(
-                        root_prompt, current_report, followup
-                    )
+                    current_prompt = build_followup_prompt(root_prompt, current_report, followup)
                     break
 
     asyncio.run(_run())

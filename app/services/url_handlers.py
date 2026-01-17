@@ -138,9 +138,7 @@ def format_reddit_subreddit_markdown(
     for post in posts:
         score = post.score if post.score is not None else "n/a"
         comments = post.num_comments if post.num_comments is not None else "n/a"
-        lines.append(
-            f"- **{post.title}** (score: {score}, comments: {comments}) {post.url}"
-        )
+        lines.append(f"- **{post.title}** (score: {score}, comments: {comments}) {post.url}")
         if post.selftext:
             snippet = post.selftext.strip()
             if max_post_chars > 0:

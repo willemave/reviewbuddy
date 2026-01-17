@@ -9,8 +9,12 @@ def test_usage_tracker_aggregates() -> None:
     tracker = UsageTracker()
 
     async def _run() -> None:
-        await tracker.add(RunUsage(input_tokens=10, output_tokens=5, requests=1), model_name="gpt-5.2")
-        await tracker.add(RunUsage(input_tokens=3, output_tokens=7, requests=2), model_name="gpt-5.2")
+        await tracker.add(
+            RunUsage(input_tokens=10, output_tokens=5, requests=1), model_name="gpt-5.2"
+        )
+        await tracker.add(
+            RunUsage(input_tokens=3, output_tokens=7, requests=2), model_name="gpt-5.2"
+        )
         await tracker.add_source("reddit", count=2)
         await tracker.add_source("youtube")
         snapshot = await tracker.snapshot()

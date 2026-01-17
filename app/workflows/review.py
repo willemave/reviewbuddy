@@ -616,9 +616,7 @@ async def _crawl_single(
         if usage_tracker is not None:
             await usage_tracker.add_source(custom_content.source)
             if custom_content.usage is not None:
-                await usage_tracker.add(
-                    custom_content.usage, model_name=custom_content.model_name
-                )
+                await usage_tracker.add(custom_content.usage, model_name=custom_content.model_name)
         return
 
     page = await context.new_page()
@@ -633,9 +631,7 @@ async def _crawl_single(
     except FetchError as exc:
         if should_retry_headful(exc) and headful_fallback.get("enabled"):
             try:
-                html = await fetch_with_headful_fallback(
-                    headful_fallback, task.url, timeout_ms
-                )
+                html = await fetch_with_headful_fallback(headful_fallback, task.url, timeout_ms)
                 await _store_fetched(run_id, task.url, html, run_paths)
                 if usage_tracker is not None:
                     await usage_tracker.add_source("web")

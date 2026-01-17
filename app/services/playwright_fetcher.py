@@ -32,6 +32,7 @@ def should_retry_headful(error: Exception) -> bool:
     message = str(error).lower()
     return any(marker in message for marker in HEADFUL_RETRY_MARKERS)
 
+
 def _is_http(url: str) -> bool:
     return url.startswith("http://") or url.startswith("https://")
 

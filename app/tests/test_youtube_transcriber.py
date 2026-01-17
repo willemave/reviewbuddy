@@ -39,12 +39,8 @@ def test_transcribe_audio_rejects_empty_samples(tmp_path, monkeypatch) -> None:
     audio_path = tmp_path / "audio.mp3"
     audio_path.write_bytes(b"data")
 
-    monkeypatch.setattr(
-        "app.services.youtube_transcriber._load_audio_samples", lambda _: []
-    )
-    monkeypatch.setattr(
-        "app.services.youtube_transcriber._load_whisper_model", lambda _: object()
-    )
+    monkeypatch.setattr("app.services.youtube_transcriber._load_audio_samples", lambda _: [])
+    monkeypatch.setattr("app.services.youtube_transcriber._load_whisper_model", lambda _: object())
 
     with pytest.raises(YouTubeError) as excinfo:
         transcribe_audio(audio_path, model_name="base")

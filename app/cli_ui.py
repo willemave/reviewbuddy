@@ -151,11 +151,15 @@ def prompt_followup(console: Console) -> str | None:
 def prompt_action(console: Console) -> str:
     """Prompt for an interactive action."""
 
-    return Prompt.ask(
-        "[f]ollowup, [c]onfig, [l]ogs, [q]uit",
-        default="q",
-        console=console,
-    ).strip().lower()
+    return (
+        Prompt.ask(
+            "[f]ollowup, [c]onfig, [l]ogs, [q]uit",
+            default="q",
+            console=console,
+        )
+        .strip()
+        .lower()
+    )
 
 
 def build_followup_prompt(original_prompt: str, report: str, followup: str) -> str:
