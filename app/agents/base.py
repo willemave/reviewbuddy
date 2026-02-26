@@ -49,7 +49,7 @@ class LanePlan(BaseModel):
 class LaneRefinement(BaseModel):
     """Additional queries based on lane findings."""
 
-    queries: list[SearchQuery] = Field(min_length=1, max_length=3)
+    queries: list[SearchQuery] = Field(min_length=1, max_length=8)
 
 
 class SourceDigest(BaseModel):

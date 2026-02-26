@@ -46,10 +46,14 @@ class Settings(BaseSettings):
     max_agents: int = Field(default=10, ge=1, le=25)
     headful: bool = True
     navigation_timeout_ms: int = Field(default=20000, ge=1000, le=120000)
+    crawl_concurrency_per_lane: int = Field(default=6, ge=1, le=20)
+    seed_query_budget_ratio: float = Field(default=0.4, ge=0.1, le=0.9)
+    refinement_rounds: int = Field(default=3, ge=1, le=6)
 
     # Exa
     exa_search_type: str = "auto"
-    exa_num_results: int = Field(default=10, ge=1, le=100)
+    exa_num_results: int = Field(default=30, ge=1, le=100)
+    exa_min_results_per_query: int = Field(default=20, ge=1, le=100)
     exa_user_location: str = "US"
 
     # Google
@@ -78,13 +82,20 @@ class Settings(BaseSettings):
     )
 
     # YouTube + Whisper
-    youtube_max_videos: int = Field(default=3, ge=0, le=3)
+    youtube_max_videos: int = Field(default=6, ge=0, le=10)
     whisper_model: str = "base"
     whisper_device: str = "auto"
-    youtube_transcript_max_chars: int = Field(default=6000, ge=500, le=20000)
+    youtube_summarize_transcripts: bool = True
+    youtube_summary_model: str = "gemini-3-flash-preview"
+    youtube_summary_concurrency: int = Field(default=3, ge=1, le=10)
+    youtube_transcript_max_chars: int = Field(default=2500, ge=500, le=20000)
 
     # Markdown
-    markdown_max_chars: int = Field(default=6000, ge=500, le=20000)
+    markdown_max_chars: int = Field(default=2500, ge=500, le=20000)
+    evidence_max_chars: int = Field(default=1400, ge=200, le=5000)
+    markdown_bm25_threshold: float = Field(default=1.0, ge=0.0, le=10.0)
+    markdown_pruning_threshold: float = Field(default=0.48, ge=0.0, le=1.0)
+    markdown_word_count_threshold: int = Field(default=8, ge=1, le=200)
 
 
 @lru_cache

@@ -2,8 +2,11 @@
 
 import asyncio
 import logging
+import re
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 
@@ -32,6 +35,7 @@ from app.services.storage import (
     update_run_status,
     url_to_filename,
 )
+from app.services.transcript_summarizer import summarize_youtube_transcripts
 from app.services.url_handlers import CustomContent, fetch_custom_content
 from app.services.usage_tracker import UsageSnapshot, UsageTracker
 from app.services.youtube_transcriber import (
@@ -42,6 +46,60 @@ from app.services.youtube_transcriber import (
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+NUMERIC_SIGNAL_RE = re.compile(
+    r"\b\d+(?:[.,]\d+)?(?:%|x|ms|gb|tb|w|wh|mah|hz|fps|in|inch|hours?|mins?|minutes?|years?)?\b",
+    re.IGNORECASE,
+)
+CAVEAT_MARKERS = (
+    "however",
+    "but",
+    "downside",
+    "issue",
+    "problem",
+    "complaint",
+    "failure",
+    "tradeoff",
+    "caveat",
+    "limitation",
+    "concern",
+)
+SIGNAL_MARKERS = (
+    "recommend",
+    "tested",
+    "comparison",
+    "durability",
+    "reliability",
+    "quiet",
+    "noise",
+    "battery",
+    "performance",
+    "warranty",
+    "return",
+)
+NOISE_MARKERS = (
+    "cookie",
+    "privacy policy",
+    "terms of service",
+    "accept all",
+    "sign in",
+    "subscribe",
+    "javascript",
+    "advertisement",
+)
+
+
+@dataclass(frozen=True)
+class CandidateUrl:
+    """Candidate URL returned by search prior to ranking."""
+
+    url: str
+    title: str | None
+    source_query: str
+    lane_name: str
+    score: float
+    domain: str
+    title_key: str
 
 
 def _emit_reporter(
@@ -243,19 +301,23 @@ async def _run_lane(
     reporter: RunReporter | None = None,
 ) -> LaneResult:
     budget = lane.url_budget or 0
+    if budget <= 0:
+        return LaneResult(lane_name=lane.name, goal=lane.goal, url_tasks=[])
+
     seen_urls: set[str] = set()
     lane_slug = _slugify(lane.name)
     lane_deps = deps.model_copy(update={"job_id": f"{deps.job_id}-{lane_slug}"})
+    seed_budget = _seed_budget(budget)
 
     logger.info(
         "Lane starting: %s",
         lane.name,
-        extra={"goal": lane.goal, "budget": budget},
+        extra={"goal": lane.goal, "budget": budget, "seed_budget": seed_budget},
     )
     initial_tasks = await _collect_urls_for_queries(
         lane,
         lane.seed_queries,
-        budget,
+        seed_budget,
         seen_urls,
     )
     logger.info(
@@ -265,9 +327,12 @@ async def _run_lane(
     )
     _emit_reporter(reporter, "on_urls_discovered", len(initial_tasks))
 
-    await _store_url_records(run_id, initial_tasks)
+    if initial_tasks:
+        await _store_url_records(run_id, initial_tasks)
 
-    initial_batch_size = _initial_feedback_size(budget, len(initial_tasks))
+    all_tasks = list(initial_tasks)
+
+    initial_batch_size = _initial_feedback_size(seed_budget, len(initial_tasks))
     first_batch = initial_tasks[:initial_batch_size]
     remaining_tasks = initial_tasks[initial_batch_size:]
 
@@ -284,9 +349,18 @@ async def _run_lane(
             reporter,
         )
 
-        budget_remaining = max(0, budget - len(initial_tasks))
-        if budget_remaining > 0 and first_batch:
-            evidence = _build_evidence_snippets(first_batch, run_paths["markdown"])
+        evidence_tasks = list(first_batch)
+        refinement_targets = _refinement_targets(budget)
+        max_rounds = max(0, settings.refinement_rounds)
+        for round_index, target in enumerate(refinement_targets[:max_rounds], start=1):
+            budget_remaining = max(0, budget - len(all_tasks))
+            if budget_remaining <= 0 or not evidence_tasks:
+                break
+
+            evidence = _build_evidence_snippets(evidence_tasks, run_paths["markdown"])
+            if not evidence.strip():
+                break
+
             refinement = await refine_lane_queries(
                 prompt,
                 lane.name,
@@ -297,8 +371,9 @@ async def _run_lane(
                 model_name=model_name,
             )
             logger.info(
-                "Lane %s refinement produced %d queries",
+                "Lane %s refinement round %d produced %d queries",
                 lane.name,
+                round_index,
                 len(refinement.queries),
             )
             new_tasks = await _collect_urls_for_queries(
@@ -309,13 +384,40 @@ async def _run_lane(
             )
             if new_tasks:
                 await _store_url_records(run_id, new_tasks)
+                all_tasks.extend(new_tasks)
                 remaining_tasks.extend(new_tasks)
                 logger.info(
-                    "Lane %s refinement collected %d urls",
+                    "Lane %s refinement round %d collected %d urls",
                     lane.name,
+                    round_index,
                     len(new_tasks),
                 )
                 _emit_reporter(reporter, "on_urls_discovered", len(new_tasks))
+            else:
+                logger.info("Lane %s refinement round %d added no urls", lane.name, round_index)
+                continue
+
+            feedback_size = max(
+                1,
+                min(len(new_tasks), _initial_feedback_size(target, len(new_tasks))),
+            )
+            feedback_batch = new_tasks[:feedback_size]
+            if feedback_batch:
+                await _crawl_tasks(
+                    run_id,
+                    feedback_batch,
+                    context,
+                    headful_fallback,
+                    run_paths,
+                    timeout_ms,
+                    usage_tracker,
+                    reporter,
+                )
+                feedback_urls = {task.url for task in feedback_batch}
+                remaining_tasks = [
+                    task for task in remaining_tasks if task.url not in feedback_urls
+                ]
+                evidence_tasks = (evidence_tasks + feedback_batch)[-target:]
 
         await _crawl_tasks(
             run_id,
@@ -331,20 +433,28 @@ async def _run_lane(
         await context.close()
 
     lane_markdown = _build_lane_markdown(
-        lane, initial_tasks + remaining_tasks, run_paths["markdown"]
+        lane, all_tasks, run_paths["markdown"]
     )
     lane_path = run_paths["lanes"] / f"{lane_slug}.md"
     lane_path.write_text(lane_markdown, encoding="utf-8")
     logger.info(
         "Lane completed: %s",
         lane.name,
-        extra={"total_urls": len(initial_tasks) + len(remaining_tasks)},
+        extra={"total_urls": len(all_tasks)},
     )
     _emit_reporter(reporter, "on_lane_done", lane.name)
 
-    return LaneResult(
-        lane_name=lane.name, goal=lane.goal, url_tasks=initial_tasks + remaining_tasks
-    )
+    return LaneResult(lane_name=lane.name, goal=lane.goal, url_tasks=all_tasks)
+
+
+def _seed_budget(total_budget: int) -> int:
+    if total_budget <= 0:
+        return 0
+    if total_budget <= 3:
+        return total_budget
+
+    planned = int(round(total_budget * settings.seed_query_budget_ratio))
+    return max(1, min(total_budget - 1, planned))
 
 
 def _initial_feedback_size(budget: int, total_tasks: int) -> int:
@@ -354,16 +464,36 @@ def _initial_feedback_size(budget: int, total_tasks: int) -> int:
     return min(total_tasks, target)
 
 
+def _refinement_targets(budget: int) -> list[int]:
+    if budget <= 0:
+        return []
+    if budget <= 3:
+        return list(range(1, budget + 1))
+
+    first = max(1, round(budget * 0.3))
+    second = max(first + 1, int(budget * 0.6))
+    if second >= budget:
+        second = max(first + 1, budget - 1)
+    return sorted({first, second, budget})
+
+
 async def _collect_urls_for_queries(
     lane: LaneSpec,
     queries,
     budget: int,
     seen_urls: set[str],
 ) -> list[UrlTask]:
-    tasks: list[UrlTask] = []
+    if budget <= 0:
+        return []
+
+    candidates: list[CandidateUrl] = []
+    candidate_urls: set[str] = set()
+    per_query_results = min(
+        settings.exa_num_results,
+        max(settings.exa_min_results_per_query, budget * 3),
+    )
+
     for query in queries:
-        if len(tasks) >= budget:
-            break
         shaped = shape_query(
             QueryShapeRequest(
                 query=query.query,
@@ -377,7 +507,7 @@ async def _collect_urls_for_queries(
             response = await search_exa(
                 query=search_query,
                 api_key=settings.exa_api_key,
-                num_results=min(settings.exa_num_results, budget),
+                num_results=per_query_results,
                 search_type=settings.exa_search_type,
                 user_location=settings.exa_user_location,
             )
@@ -385,21 +515,103 @@ async def _collect_urls_for_queries(
             continue
 
         for item in response.results:
-            if not item.url or item.url in seen_urls:
+            if not item.url:
                 continue
-            if len(tasks) >= budget:
-                break
-            seen_urls.add(item.url)
-            tasks.append(
-                UrlTask(
+            if item.url in seen_urls or item.url in candidate_urls:
+                continue
+            candidate_urls.add(item.url)
+            candidates.append(
+                CandidateUrl(
                     url=item.url,
                     title=item.title,
                     source_query=query.query,
                     lane_name=lane.name,
+                    score=float(item.score or 0.0),
+                    domain=_extract_domain(item.url),
+                    title_key=_title_key(item.title),
                 )
             )
 
-    return tasks
+    selected = _rank_candidate_urls(candidates, budget)
+    for task in selected:
+        seen_urls.add(task.url)
+    return selected
+
+
+def _extract_domain(url: str) -> str:
+    try:
+        domain = urlparse(url).netloc.lower()
+    except Exception:
+        return ""
+    if domain.startswith("www."):
+        return domain[4:]
+    return domain
+
+
+def _title_key(title: str | None) -> str:
+    if not title:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+
+
+def _rank_candidate_urls(candidates: list[CandidateUrl], budget: int) -> list[UrlTask]:
+    if budget <= 0 or not candidates:
+        return []
+
+    ordered = sorted(candidates, key=lambda candidate: candidate.score, reverse=True)
+    selected: list[CandidateUrl] = []
+    backlog: list[CandidateUrl] = []
+    selected_urls: set[str] = set()
+    selected_domains: set[str] = set()
+    selected_titles: set[str] = set()
+
+    for candidate in ordered:
+        if candidate.url in selected_urls:
+            continue
+        if candidate.domain and candidate.domain not in selected_domains:
+            selected.append(candidate)
+            selected_urls.add(candidate.url)
+            selected_domains.add(candidate.domain)
+            if candidate.title_key:
+                selected_titles.add(candidate.title_key)
+            if len(selected) >= budget:
+                return [_candidate_to_url_task(item) for item in selected]
+            continue
+        backlog.append(candidate)
+
+    for candidate in backlog:
+        if len(selected) >= budget:
+            break
+        if candidate.url in selected_urls:
+            continue
+        if candidate.title_key and candidate.title_key in selected_titles:
+            continue
+        selected.append(candidate)
+        selected_urls.add(candidate.url)
+        if candidate.domain:
+            selected_domains.add(candidate.domain)
+        if candidate.title_key:
+            selected_titles.add(candidate.title_key)
+
+    if len(selected) < budget:
+        for candidate in backlog:
+            if len(selected) >= budget:
+                break
+            if candidate.url in selected_urls:
+                continue
+            selected.append(candidate)
+            selected_urls.add(candidate.url)
+
+    return [_candidate_to_url_task(item) for item in selected]
+
+
+def _candidate_to_url_task(candidate: CandidateUrl) -> UrlTask:
+    return UrlTask(
+        url=candidate.url,
+        title=candidate.title,
+        source_query=candidate.source_query,
+        lane_name=candidate.lane_name,
+    )
 
 
 async def _store_url_records(run_id: str, url_tasks: list[UrlTask]) -> None:
@@ -422,11 +634,17 @@ async def _insert_urls(records) -> None:
     await insert_urls(settings.database_path, records)
 
 
-async def _store_fetched(run_id: str, url: str, html: str, run_paths: dict[str, Path]) -> None:
+async def _store_fetched(
+    run_id: str,
+    url: str,
+    html: str,
+    run_paths: dict[str, Path],
+    source_query: str | None = None,
+) -> None:
     html_path = run_paths["html"] / url_to_filename(url, ".html")
     html_path.write_text(html, encoding="utf-8")
 
-    markdown = await html_file_to_markdown(html_path)
+    markdown = await html_file_to_markdown(html_path, user_query=source_query)
     markdown_path = run_paths["markdown"] / url_to_filename(url, ".md")
     markdown_path.write_text(markdown, encoding="utf-8")
 
@@ -530,7 +748,7 @@ async def _collect_youtube_transcripts(
     if max_videos <= 0:
         return []
 
-    bounded_max = min(max_videos, 3)
+    bounded_max = max_videos
     logger.info("Collecting up to %d YouTube videos", bounded_max)
 
     try:
@@ -542,6 +760,16 @@ async def _collect_youtube_transcripts(
             transcripts_dir,
             model_name,
         )
+        if transcripts and settings.youtube_summarize_transcripts:
+            transcripts, summary_usages = await summarize_youtube_transcripts(
+                transcripts=transcripts,
+                model_name=settings.youtube_summary_model,
+                max_chars=settings.youtube_transcript_max_chars,
+                concurrency=settings.youtube_summary_concurrency,
+            )
+            if usage_tracker is not None:
+                for usage in summary_usages:
+                    await usage_tracker.add(usage, model_name=settings.youtube_summary_model)
         if usage_tracker is not None and transcripts:
             await usage_tracker.add_source("youtube", count=len(transcripts))
         return transcripts
@@ -586,17 +814,40 @@ async def _crawl_tasks(
     usage_tracker: UsageTracker | None,
     reporter: RunReporter | None,
 ) -> None:
-    for task in url_tasks:
-        await _crawl_single(
-            run_id,
-            task,
-            context,
-            headful_fallback,
-            run_paths,
-            timeout_ms,
-            usage_tracker,
-            reporter,
-        )
+    if not url_tasks:
+        return
+
+    concurrency = min(settings.crawl_concurrency_per_lane, len(url_tasks))
+    if concurrency <= 1:
+        for task in url_tasks:
+            await _crawl_single(
+                run_id,
+                task,
+                context,
+                headful_fallback,
+                run_paths,
+                timeout_ms,
+                usage_tracker,
+                reporter,
+            )
+        return
+
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def _bounded_crawl(task: UrlTask) -> None:
+        async with semaphore:
+            await _crawl_single(
+                run_id,
+                task,
+                context,
+                headful_fallback,
+                run_paths,
+                timeout_ms,
+                usage_tracker,
+                reporter,
+            )
+
+    await asyncio.gather(*(_bounded_crawl(task) for task in url_tasks))
 
 
 async def _crawl_single(
@@ -617,13 +868,20 @@ async def _crawl_single(
             await usage_tracker.add_source(custom_content.source)
             if custom_content.usage is not None:
                 await usage_tracker.add(custom_content.usage, model_name=custom_content.model_name)
+        _emit_reporter(reporter, "on_url_done", True)
         return
 
     page = await context.new_page()
     try:
         logger.debug("Fetching url: %s", task.url)
         html = await capture_html(page, task.url, timeout_ms=timeout_ms)
-        await _store_fetched(run_id, task.url, html, run_paths)
+        await _store_fetched(
+            run_id,
+            task.url,
+            html,
+            run_paths,
+            source_query=task.source_query,
+        )
         if usage_tracker is not None:
             await usage_tracker.add_source("web")
         _emit_reporter(reporter, "on_url_done", True)
@@ -632,7 +890,13 @@ async def _crawl_single(
         if should_retry_headful(exc) and headful_fallback.get("enabled"):
             try:
                 html = await fetch_with_headful_fallback(headful_fallback, task.url, timeout_ms)
-                await _store_fetched(run_id, task.url, html, run_paths)
+                await _store_fetched(
+                    run_id,
+                    task.url,
+                    html,
+                    run_paths,
+                    source_query=task.source_query,
+                )
                 if usage_tracker is not None:
                     await usage_tracker.add_source("web")
                 _emit_reporter(reporter, "on_url_done", True)
@@ -663,7 +927,9 @@ def _build_evidence_snippets(url_tasks: list[UrlTask], markdown_dir: Path) -> st
         if not markdown_path.exists():
             continue
         raw = markdown_path.read_text(encoding="utf-8", errors="ignore")
-        snippet = raw[:1200]
+        snippet = raw.strip()
+        if not snippet:
+            continue
         snippets.append(f"URL: {task.url}\n{snippet}")
     return "\n\n".join(snippets)
 
@@ -675,10 +941,107 @@ def _build_lane_markdown(lane: LaneSpec, url_tasks: list[UrlTask], markdown_dir:
         if not markdown_path.exists():
             continue
         raw = markdown_path.read_text(encoding="utf-8", errors="ignore")
-        snippet = raw[: settings.markdown_max_chars]
+        snippet = raw.strip()
+        if not snippet:
+            continue
         title = task.title or "(untitled)"
         parts.append(f"## {title}\nURL: {task.url}\n\n{snippet}\n")
     return "\n".join(parts)
+
+
+def _distill_source_text(raw: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+
+    cleaned = raw.strip()
+    if not cleaned:
+        return ""
+
+    candidates = _extract_signal_segments(cleaned)
+    scored: list[tuple[int, str]] = []
+    seen_segments: set[str] = set()
+    for candidate in candidates:
+        normalized = _normalize_segment(candidate)
+        if len(normalized) < 20 or normalized in seen_segments:
+            continue
+        seen_segments.add(normalized)
+        score = _score_segment(candidate)
+        if score <= 0:
+            continue
+        scored.append((score, candidate))
+
+    if not scored:
+        return " ".join(cleaned.split())[:max_chars].rstrip()
+
+    scored.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
+    highlights: list[str] = []
+    quantitative: list[str] = []
+    caveats: list[str] = []
+
+    for _, candidate in scored:
+        lowered = candidate.lower()
+        if any(marker in lowered for marker in CAVEAT_MARKERS):
+            caveats.append(candidate)
+            continue
+        if NUMERIC_SIGNAL_RE.search(candidate):
+            quantitative.append(candidate)
+            continue
+        highlights.append(candidate)
+
+    parts: list[str] = []
+    _append_distilled_section(parts, "Highlights", highlights, limit=5)
+    _append_distilled_section(parts, "Quantitative Signals", quantitative, limit=4)
+    _append_distilled_section(parts, "Caveats", caveats, limit=3)
+    distilled = "\n".join(parts).strip()
+    if not distilled:
+        return " ".join(cleaned.split())[:max_chars].rstrip()
+    if len(distilled) <= max_chars:
+        return distilled
+    return distilled[:max_chars].rstrip()
+
+
+def _extract_signal_segments(raw: str) -> list[str]:
+    lines = [line.strip(" -*\t") for line in raw.splitlines() if line.strip()]
+    if len(lines) >= 6:
+        return lines
+    return [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", raw) if segment.strip()]
+
+
+def _normalize_segment(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _score_segment(segment: str) -> int:
+    lowered = segment.lower()
+    if any(marker in lowered for marker in NOISE_MARKERS):
+        return -5
+
+    score = 0
+    if NUMERIC_SIGNAL_RE.search(segment):
+        score += 3
+    if any(marker in lowered for marker in CAVEAT_MARKERS):
+        score += 2
+    if any(marker in lowered for marker in SIGNAL_MARKERS):
+        score += 1
+    if 40 <= len(segment) <= 280:
+        score += 1
+    if len(segment) > 450:
+        score -= 1
+    return score
+
+
+def _append_distilled_section(
+    parts: list[str],
+    heading: str,
+    values: list[str],
+    limit: int,
+) -> None:
+    if not values:
+        return
+    parts.append(f"### {heading}")
+    for value in values[:limit]:
+        parts.append(f"- {value}")
+    parts.append("")
 
 
 def _slugify(value: str) -> str:
@@ -703,7 +1066,9 @@ async def _synthesize(
             if not markdown_path.exists():
                 continue
             raw = markdown_path.read_text(encoding="utf-8", errors="ignore")
-            snippet = raw[: settings.markdown_max_chars]
+            snippet = raw.strip()
+            if not snippet:
+                continue
             title = task.title or "(untitled)"
             parts.append(f"## {title}\nURL: {task.url}\n\n{snippet}\n")
 
@@ -711,7 +1076,9 @@ async def _synthesize(
         parts.append("# Video Transcripts\n")
         for video in youtube_transcripts:
             title = video.title or "(untitled)"
-            snippet = video.transcript[: settings.youtube_transcript_max_chars]
+            snippet = video.transcript.strip()
+            if not snippet:
+                continue
             parts.append(f"## {title}\nURL: {video.url}\n\n{snippet}\n")
 
     source_markdown = "\n".join(parts)

@@ -18,7 +18,7 @@ lane_refiner_agent = Agent(
     model_settings=ModelSettings(temperature=settings.agent_temperature, tool_choice="auto"),
     system_prompt=(
         "You are refining search queries for a specific research lane. Use the evidence "
-        "snippets to propose 1-3 new, high-signal queries that expand coverage. Focus on "
+        "snippets to propose 3-8 new, high-signal queries that expand coverage. Focus on "
         "forums, comparative reviews, blogs, and real user feedback. Avoid ecommerce "
         "storefronts and avoid site: filters. Do not repeat existing queries."
     ),
@@ -53,7 +53,7 @@ async def refine_lane_queries(
     agent = lane_refiner_agent if model_name is None else lane_refiner_agent.clone(model=model_name)
     result = await agent.run(
         (
-            "Generate 1-3 new queries for this lane based on evidence.\n\n"
+            "Generate 3-8 new queries for this lane based on evidence.\n\n"
             f"Prompt: {prompt}\n"
             f"Lane: {lane_name}\n"
             f"Goal: {lane_goal}\n\n"
