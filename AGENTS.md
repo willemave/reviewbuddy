@@ -3,7 +3,7 @@
 Writing Buddy is an AI-powered writing assistant that transforms notes/outlines into polished prose. It uses a pipeline of specialized pydantic-ai agents for expansion, critique, and rewriting.
 
 **Key Components:**
-- **CLI** (`app/cli.py`): Typer-based interactive workflows
+- **CLI** (`app/cli.py`): Typer-based run and follow-up commands
 - **API** (`app/main.py`): FastAPI REST endpoints for React frontend
 - **Agents** (`app/agents/`): Expander, Critics (3), Rewriters (2), Researcher
 - **Research** (`app/research/`): MCP tools + deep research providers (OpenAI/Google)
@@ -157,8 +157,8 @@ uv sync && . .venv/bin/activate
 cp .env.example .env                 # Add your API keys
 alembic upgrade head                 # Apply migrations
 
-# CLI (recommended for writing workflows)
-python -m app.cli init               # Interactive mode
+# CLI
+python -m app.cli run "your prompt"
 
 # API server (for React frontend)
 uvicorn app.main:app --reload        # Port 8000

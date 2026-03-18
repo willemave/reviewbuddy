@@ -23,19 +23,9 @@ CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
         summary="Execute a new one-shot research run and print the synthesis.",
         details=(
             "Runs planning, search, crawl, synthesis, and writes artifacts under data/storage/<run_id>/.",
-            "Best when you want a final answer without staying in an interactive session.",
+            "Best when you want a final answer in a single command.",
         ),
         examples=('reviewbuddy run "best dishwasher for quiet apartment"',),
-    ),
-    CliCommandHelp(
-        name="interactive",
-        usage="reviewbuddy interactive",
-        summary="Start an interactive session that can create new runs or resume saved ones.",
-        details=(
-            "Shows recent runs on startup.",
-            "Supports local Q&A with [a]sk and deeper research with [f]ollowup.",
-        ),
-        examples=("reviewbuddy interactive --max-urls 50",),
     ),
     CliCommandHelp(
         name="ask",
@@ -46,16 +36,6 @@ CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
             "Useful for previous-session Q&A in scripts or agent workflows.",
         ),
         examples=('reviewbuddy ask abc123 "What were the main warranty concerns?"',),
-    ),
-    CliCommandHelp(
-        name="resume",
-        usage="reviewbuddy resume <run_id>",
-        summary="Open a saved run, show its synthesis, and continue with questions or more research.",
-        details=(
-            "Use [a]sk to query saved material locally.",
-            "Use [f]ollowup to launch additional research based on the existing report.",
-        ),
-        examples=("reviewbuddy resume abc123",),
     ),
     CliCommandHelp(
         name="commands",

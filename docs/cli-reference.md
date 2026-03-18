@@ -8,19 +8,10 @@ Primary entry points:
 Execute a new one-shot research run and print the synthesis.
 
 - Runs planning, search, crawl, synthesis, and writes artifacts under `data/storage/<run_id>/`.
-- Best when you want a final answer without staying in an interactive session.
+- Best when you want a final answer in a single command.
 
 Example:
 - `reviewbuddy run "best dishwasher for quiet apartment"`
-
-## `reviewbuddy interactive`
-Start an interactive session that can create new runs or resume saved ones.
-
-- Shows recent runs on startup.
-- Supports local Q&A with `[a]sk` and deeper research with `[f]ollowup`.
-
-Example:
-- `reviewbuddy interactive --max-urls 50`
 
 ## `reviewbuddy ask <run_id> "<question>"`
 Answer a follow-up question from a saved run without re-crawling.
@@ -30,15 +21,6 @@ Answer a follow-up question from a saved run without re-crawling.
 
 Example:
 - `reviewbuddy ask abc123 "What were the main warranty concerns?"`
-
-## `reviewbuddy resume <run_id>`
-Open a saved run, show its synthesis, and continue with questions or more research.
-
-- Use `[a]sk` to query saved material locally.
-- Use `[f]ollowup` to launch additional research based on the existing report.
-
-Example:
-- `reviewbuddy resume abc123`
 
 ## `reviewbuddy commands [--agent]`
 Print a compact command reference.

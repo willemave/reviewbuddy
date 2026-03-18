@@ -11,9 +11,7 @@ def test_build_command_reference_includes_primary_commands() -> None:
     reference = build_command_reference()
 
     assert "reviewbuddy run" in reference
-    assert "reviewbuddy interactive" in reference
     assert "reviewbuddy ask" in reference
-    assert "reviewbuddy resume" in reference
     assert "reviewbuddy doctor" in reference
     assert "docs/agent-cli-reference.md" in reference
 
@@ -32,6 +30,14 @@ def test_commands_command_prints_agent_reference() -> None:
     assert result.exit_code == 0
     assert "ReviewBuddy CLI For Agents" in result.stdout
     assert "Usage: `reviewbuddy ask <run_id>" in result.stdout
+
+
+def test_interactive_commands_are_not_registered() -> None:
+    interactive_result = runner.invoke(cli.app, ["interactive"])
+    resume_result = runner.invoke(cli.app, ["resume", "abc123"])
+
+    assert interactive_result.exit_code == 2
+    assert resume_result.exit_code == 2
 
 
 def test_doctor_command_returns_nonzero_on_failures(monkeypatch) -> None:
