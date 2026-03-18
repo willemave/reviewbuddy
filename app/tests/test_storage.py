@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models.review import RunRecord
-from app.services.storage import create_run, fetch_run, init_db
+from app.services.storage import create_run, fetch_run, init_db, resolve_run_dir
 
 
 def test_fetch_run_returns_record(tmp_path: Path) -> None:
@@ -42,3 +42,20 @@ def test_fetch_run_returns_none(tmp_path: Path) -> None:
         assert fetched is None
 
     asyncio.run(_run())
+
+
+def test_resolve_run_dir_uses_stored_run_dir(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-123"
+    assert resolve_run_dir(run_dir, "run-123") == run_dir
+
+
+def test_resolve_run_dir_uses_override_base_dir(tmp_path: Path) -> None:
+    override_dir = tmp_path / "storage"
+    assert (
+        resolve_run_dir(tmp_path / "old-run", "run-123", override_dir) == override_dir / "run-123"
+    )
+
+
+def test_resolve_run_dir_accepts_override_run_dir(tmp_path: Path) -> None:
+    override_dir = tmp_path / "run-123"
+    assert resolve_run_dir(tmp_path / "old-run", "run-123", override_dir) == override_dir

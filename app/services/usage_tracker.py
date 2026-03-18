@@ -1,13 +1,13 @@
-"""Usage tracking for Pydantic AI runs."""
+"""Usage tracking for Codex-backed runs."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
-from pydantic_ai.usage import RunUsage
+from app.services.codex_exec import CodexUsage
 
 
 @dataclass(frozen=True)
@@ -58,25 +58,24 @@ class UsageTracker:
         self._input_tokens = 0
         self._output_tokens = 0
         self._requests = 0
-        self._model_usage: dict[str, RunUsage] = {}
+        self._model_usage: dict[str, CodexUsage] = {}
         self._sources: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
-    async def add(self, usage: RunUsage | None, model_name: str | None = None) -> None:
-        """Add a RunUsage record to the totals."""
+    async def add(self, usage: CodexUsage | None, model_name: str | None = None) -> None:
+        """Add a usage record to the totals."""
 
         if usage is None:
             return
         async with self._lock:
-            self._input_tokens += usage.input_tokens
-            self._output_tokens += usage.output_tokens
-            self._requests += usage.requests
-            if model_name:
-                existing = self._model_usage.get(model_name)
-                if existing is None:
-                    existing = RunUsage()
-                existing.incr(usage)
-                self._model_usage[model_name] = existing
+            self._merge_usage(usage, model_name)
+
+    def add_nowait(self, usage: CodexUsage | None, model_name: str | None = None) -> None:
+        """Add a usage record synchronously for same-thread call sites."""
+
+        if usage is None:
+            return
+        self._merge_usage(usage, model_name)
 
     async def add_source(self, source: str, count: int = 1) -> None:
         """Add a source count to the totals."""
@@ -86,6 +85,22 @@ class UsageTracker:
         normalized = source.strip().lower()
         async with self._lock:
             self._sources[normalized] = self._sources.get(normalized, 0) + count
+
+    def _merge_usage(self, usage: CodexUsage, model_name: str | None) -> None:
+        self._input_tokens += usage.input_tokens
+        self._output_tokens += usage.output_tokens
+        self._requests += usage.requests
+        if not model_name:
+            return
+        existing = self._model_usage.get(model_name)
+        if existing is None:
+            existing = CodexUsage(requests=0)
+        self._model_usage[model_name] = CodexUsage(
+            input_tokens=existing.input_tokens + usage.input_tokens,
+            output_tokens=existing.output_tokens + usage.output_tokens,
+            cached_input_tokens=existing.cached_input_tokens + usage.cached_input_tokens,
+            requests=existing.requests + usage.requests,
+        )
 
     async def snapshot(self, include_costs: bool = False) -> UsageSnapshot:
         """Return an immutable snapshot of totals."""
@@ -127,44 +142,7 @@ class UsageTracker:
 
 
 async def _calculate_costs(
-    model_usage: Mapping[str, RunUsage],
+    model_usage: Mapping[str, CodexUsage],
 ) -> tuple[Decimal | None, dict[str, CostSnapshot], list[str]]:
-    try:
-        from tokonomics import calculate_pydantic_cost
-    except ImportError:
-        return None, {}, list(model_usage.keys())
-
-    total_cost = Decimal("0")
-    cost_by_model: dict[str, CostSnapshot] = {}
-    missing_models: list[str] = []
-    for model, usage in model_usage.items():
-        if usage.input_tokens + usage.output_tokens <= 0:
-            continue
-        costs = await calculate_pydantic_cost(model=model, usage=usage)
-        if costs is None:
-            missing_models.append(model)
-            continue
-        input_cost = _to_decimal(costs.input_cost)
-        output_cost = _to_decimal(costs.output_cost)
-        total = _to_decimal(getattr(costs, "total_cost", None), default=input_cost + output_cost)
-        cost_by_model[model] = CostSnapshot(
-            input_cost=input_cost,
-            output_cost=output_cost,
-            total_cost=total,
-        )
-        total_cost += total
-
-    if not cost_by_model:
-        return None, {}, missing_models
-    return total_cost, cost_by_model, missing_models
-
-
-def _to_decimal(value: object, default: Decimal | None = None) -> Decimal:
-    if isinstance(value, Decimal):
-        return value
-    if value is None:
-        return default if default is not None else Decimal("0")
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return default if default is not None else Decimal("0")
+    unavailable = list(model_usage.keys())
+    return None, {}, unavailable

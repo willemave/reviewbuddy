@@ -11,9 +11,9 @@ from urllib.parse import urlparse
 
 import httpx
 from praw.exceptions import InvalidURL
-from pydantic_ai.usage import RunUsage
 
 from app.core.settings import get_settings
+from app.services.codex_exec import CodexUsage, run_codex_prompt_sync
 from app.services.storage import url_to_filename
 from app.services.youtube_transcriber import YouTubeError, is_youtube_url
 
@@ -31,7 +31,7 @@ class CustomContent:
     html: str
     markdown: str
     source: str
-    usage: RunUsage | None = None
+    usage: CodexUsage | None = None
     model_name: str | None = None
 
 
@@ -279,13 +279,17 @@ def fetch_youtube_content(
     if not is_youtube_url(url):
         return None
 
-    from app.services.youtube_transcriber import download_audio, transcribe_audio
+    from app.services.youtube_transcriber import extract_youtube_transcript
 
     try:
-        audio_path, title = download_audio(url, videos_dir)
-        transcript = transcribe_audio(audio_path, settings.whisper_model)
+        transcript_id, title, transcript = extract_youtube_transcript(
+            url,
+            videos_dir,
+            transcripts_dir,
+            settings.whisper_model,
+        )
         transcripts_dir.mkdir(parents=True, exist_ok=True)
-        transcript_path = transcripts_dir / f"{audio_path.stem}.txt"
+        transcript_path = transcripts_dir / f"{transcript_id}.txt"
         transcript_path.write_text(transcript, encoding="utf-8")
     except YouTubeError as exc:
         logger.warning("YouTube handler failed: %s", exc)
@@ -301,30 +305,51 @@ def fetch_youtube_content(
     return CustomContent(html=html, markdown=markdown, source="youtube")
 
 
-def _summarize_pdf_with_gemini(pdf_path: Path, source_url: str) -> tuple[str, RunUsage | None]:
-    from pydantic_ai import Agent, DocumentUrl
-    from pydantic_ai.models.google import GoogleModel
-    from pydantic_ai.providers.google import GoogleProvider
+def _extract_pdf_text(pdf_path: Path) -> str:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("pypdf is not installed") from exc
 
-    provider = GoogleProvider(api_key=settings.google_api_key)
-    model = GoogleModel(settings.pdf_model_name, provider=provider)
-    agent = Agent(
-        model,
-        system_prompt=(
+    reader = PdfReader(str(pdf_path))
+    chunks: list[str] = []
+    for page in reader.pages:
+        chunks.append(page.extract_text() or "")
+    return "\n\n".join(chunk.strip() for chunk in chunks if chunk.strip()).strip()
+
+
+def _summarize_pdf_with_codex(pdf_path: Path, source_url: str) -> tuple[str, CodexUsage | None]:
+    pdf_text = _extract_pdf_text(pdf_path)
+    if not pdf_text:
+        raise RuntimeError("PDF text extraction returned no content")
+    if settings.pdf_input_max_chars > 0:
+        pdf_text = pdf_text[: settings.pdf_input_max_chars]
+
+    response = run_codex_prompt_sync(
+        (
             "You are a research assistant summarizing PDFs for product reviews. "
-            "Extract key findings, caveats, and any quantitative specs."
+            "Extract key findings, caveats, and any quantitative specs.\n\n"
+            "Summarize this PDF for a product research dossier. Provide key points, "
+            "relevant specs, and any cautions.\n"
+            f"Source URL: {source_url}\n\n"
+            f"PDF text:\n{pdf_text}"
         ),
+        model_name=settings.pdf_model_name,
     )
+    summary = response.message.strip()
+    if not summary:
+        raise RuntimeError("PDF summarization returned no content")
+    return summary, response.usage
 
-    file_ref = provider.client.files.upload(file=str(pdf_path))
-    document = DocumentUrl(url=file_ref.uri, media_type=file_ref.mime_type or PDF_MEDIA_TYPE)
-    prompt = (
-        "Summarize this PDF for a product research dossier. Provide key points, "
-        "relevant specs, and any cautions. Source URL: "
-        f"{source_url}"
-    )
-    result = agent.run_sync([prompt, document])
-    return result.output, result.usage()
+
+def _fallback_pdf_summary(pdf_path: Path) -> str:
+    try:
+        text = _extract_pdf_text(pdf_path)
+    except Exception:  # noqa: BLE001
+        return ""
+    if settings.pdf_summary_max_chars > 0:
+        return text[: settings.pdf_summary_max_chars].strip()
+    return text.strip()
 
 
 def fetch_pdf_content(url: str, pdf_dir: Path) -> CustomContent | None:
@@ -349,7 +374,16 @@ def fetch_pdf_content(url: str, pdf_dir: Path) -> CustomContent | None:
     pdf_path = pdf_dir / url_to_filename(url, ".pdf")
     pdf_path.write_bytes(content)
 
-    summary, usage = _summarize_pdf_with_gemini(pdf_path, url)
+    try:
+        summary, usage = _summarize_pdf_with_codex(pdf_path, url)
+        if not summary.strip():
+            raise RuntimeError("PDF summary was empty")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("PDF summary failed: %s", exc)
+        summary = _fallback_pdf_summary(pdf_path)
+        usage = None
+        if not summary:
+            return None
     markdown = format_pdf_markdown(
         title="PDF Summary",
         url=url,

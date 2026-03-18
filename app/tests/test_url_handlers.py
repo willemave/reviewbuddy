@@ -1,7 +1,11 @@
+from types import SimpleNamespace
+
 from app.services.url_handlers import (
     RedditComment,
     RedditPost,
     _extract_subreddit_name,
+    fetch_pdf_content,
+    fetch_youtube_content,
     format_pdf_markdown,
     format_reddit_markdown,
     format_reddit_subreddit_markdown,
@@ -86,3 +90,63 @@ def test_format_reddit_subreddit_markdown() -> None:
     assert "r/test" in markdown
     assert "Post One" in markdown
     assert "https://www.reddit.com/r/test/" in markdown
+
+
+def test_fetch_pdf_content_falls_back_when_summary_fails(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.url_handlers.httpx.get",
+        lambda *args, **kwargs: SimpleNamespace(
+            headers={"content-type": "application/pdf"},
+            content=b"%PDF-1.4 fake",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.url_handlers._summarize_pdf_with_codex",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr("app.services.url_handlers._fallback_pdf_summary", lambda path: "Fallback")
+
+    result = fetch_pdf_content("https://example.com/file.pdf", tmp_path)
+
+    assert result is not None
+    assert result.source == "pdf"
+    assert "Fallback" in result.markdown
+
+
+def test_fetch_pdf_content_falls_back_when_summary_is_blank(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.url_handlers.httpx.get",
+        lambda *args, **kwargs: SimpleNamespace(
+            headers={"content-type": "application/pdf"},
+            content=b"%PDF-1.4 fake",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.url_handlers._summarize_pdf_with_codex",
+        lambda *args, **kwargs: ("", None),
+    )
+    monkeypatch.setattr("app.services.url_handlers._fallback_pdf_summary", lambda path: "Fallback")
+
+    result = fetch_pdf_content("https://example.com/file.pdf", tmp_path)
+
+    assert result is not None
+    assert result.source == "pdf"
+    assert "Fallback" in result.markdown
+
+
+def test_fetch_youtube_content_uses_extracted_transcript(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.youtube_transcriber.extract_youtube_transcript",
+        lambda *_args, **_kwargs: ("abc123", "Video Title", "Transcript text"),
+    )
+
+    result = fetch_youtube_content(
+        "https://www.youtube.com/watch?v=abc123",
+        tmp_path / "videos",
+        tmp_path / "transcripts",
+    )
+
+    assert result is not None
+    assert result.source == "youtube"
+    assert "Transcript text" in result.markdown
+    assert (tmp_path / "transcripts" / "abc123.txt").exists()

@@ -15,3 +15,6 @@ URL_STATUS_FAILED = "failed"
 RUN_STATUS_IN_PROGRESS = "in_progress"
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_FAILED = "failed"
+
+FOLLOWUP_MEMORY_FILENAME = "followup_memory.json"
+YOUTUBE_TRANSCRIPTS_FILENAME = "youtube_transcripts.json"

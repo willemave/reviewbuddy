@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import logging
@@ -12,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.agents.base import LaneRefinement
-from app.agents.rlm_agents import rlm_root_agent, rlm_subquery_agent
+from app.agents.rlm_agents import run_rlm_root_prompt, run_rlm_subquery_prompt
 from app.core.settings import get_settings
 from app.models.review import LaneResult
 from app.models.rlm import ContextDocument, RlmRefineRequest, RlmRunRequest, RlmRunResult
@@ -68,14 +67,13 @@ async def run_rlm(request: RlmRunRequest) -> RlmRunResult:
             "RLM iteration",
             extra={"run_id": request.run_id, "iteration": iteration},
         )
-        result = await rlm_root_agent.run(
+        output_text, response = await run_rlm_root_prompt(
             prompt,
             deps=request.deps,
-            model=root_model,
+            model_name=root_model,
         )
-        output_text = _coerce_text(result.output)
         if request.usage_tracker is not None:
-            await request.usage_tracker.add(result.usage(), model_name=root_model)
+            await request.usage_tracker.add(response.usage, model_name=root_model)
 
         final = _extract_final(output_text, repl_globals)
         if final is not None:
@@ -235,23 +233,19 @@ def _build_repl_globals(
         "zip": zip,
     }
 
-    def _record_usage(result, model_name: str) -> None:
+    def _record_usage(usage, model_name: str) -> None:
         if usage_tracker is None:
             return
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(usage_tracker.add(result.usage(), model_name=model_name))
-        except RuntimeError:
-            return
+        usage_tracker.add_nowait(usage, model_name=model_name)
 
     def llm_query(prompt: str, model: str | None = None) -> str:
-        result = rlm_subquery_agent.run_sync(
+        output_text, response = run_rlm_subquery_prompt(
             prompt,
             deps=deps,
-            model=model or subquery_model,
+            model_name=model or subquery_model,
         )
-        _record_usage(result, model or subquery_model)
-        return _coerce_text(result.output)
+        _record_usage(response.usage, model or subquery_model)
+        return output_text
 
     def llm_query_batched(prompts: list[str], model: str | None = None) -> list[str]:
         return [llm_query(p, model=model) for p in prompts]

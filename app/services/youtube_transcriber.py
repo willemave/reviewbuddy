@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import multiprocessing
+import queue
 import re
 from collections.abc import Iterable
 from functools import lru_cache
@@ -38,6 +42,10 @@ YOUTUBE_QUERY_TEMPLATES = (
     "{prompt} comparison",
     "{prompt} buyer guide",
 )
+YOUTUBE_CAPTION_LANGS = ("en", "en-US", "en-GB")
+YOUTUBE_CAPTION_EXTENSIONS = (".json3", ".vtt", ".ttml", ".srv3")
+
+logger = logging.getLogger(__name__)
 
 
 def is_youtube_url(url: str) -> bool:
@@ -85,6 +93,7 @@ def select_youtube_videos(entries: Iterable[dict], max_videos: int) -> list[YouT
         return []
 
     videos: list[YouTubeVideo] = []
+    seen: set[str] = set()
     for entry in entries:
         url = entry.get("webpage_url") or entry.get("url") or entry.get("id")
         if not url:
@@ -92,11 +101,14 @@ def select_youtube_videos(entries: Iterable[dict], max_videos: int) -> list[YouT
         url = _normalize_youtube_url(url)
         if not is_youtube_url(url):
             continue
+        if url in seen:
+            continue
+        seen.add(url)
         videos.append(YouTubeVideo(url=url, title=entry.get("title")))
         if len(videos) >= max_videos:
             break
 
-    return _dedupe_videos(videos)[:max_videos]
+    return videos[:max_videos]
 
 
 def search_youtube(prompt: str, max_videos: int) -> list[YouTubeVideo]:
@@ -171,6 +183,151 @@ def download_audio(video_url: str, output_dir: Path) -> tuple[Path, str | None]:
     if not audio_path.exists():
         raise YouTubeError("Audio file not found after download")
     return audio_path, info.get("title")
+
+
+def _captions_dir(base_dir: Path) -> Path:
+    return base_dir / "_captions"
+
+
+def _find_caption_file(output_dir: Path, video_id: str) -> Path | None:
+    for extension in YOUTUBE_CAPTION_EXTENSIONS:
+        matches = sorted(output_dir.glob(f"{video_id}*.{extension.lstrip('.')}"))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _parse_json3_captions(caption_path: Path) -> str:
+    payload = json.loads(caption_path.read_text(encoding="utf-8"))
+    lines: list[str] = []
+    for event in payload.get("events", []):
+        if not isinstance(event, dict):
+            continue
+        segments = event.get("segs")
+        if not isinstance(segments, list):
+            continue
+        line = "".join(
+            segment.get("utf8", "")
+            for segment in segments
+            if isinstance(segment, dict) and isinstance(segment.get("utf8"), str)
+        )
+        line = re.sub(r"\s+", " ", line.replace("\n", " ")).strip()
+        if not line:
+            continue
+        if lines and lines[-1] == line:
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _parse_vtt_captions(caption_path: Path) -> str:
+    lines: list[str] = []
+    for raw_line in caption_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line == "WEBVTT" or "-->" in line or line.isdigit():
+            continue
+        if line.startswith("NOTE"):
+            continue
+        line = re.sub(r"<[^>]+>", "", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        if not line:
+            continue
+        if lines and lines[-1] == line:
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _parse_xml_captions(caption_path: Path) -> str:
+    text = caption_path.read_text(encoding="utf-8")
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _parse_caption_text(caption_path: Path) -> str:
+    suffix = caption_path.suffix.lower()
+    if suffix == ".json3":
+        return _parse_json3_captions(caption_path)
+    if suffix == ".vtt":
+        return _parse_vtt_captions(caption_path)
+    return _parse_xml_captions(caption_path)
+
+
+def download_captions(video_url: str, output_dir: Path) -> tuple[str, str | None, str]:
+    """Download YouTube subtitles or auto-captions and return transcript text.
+
+    Args:
+        video_url: YouTube URL.
+        output_dir: Output directory for caption files.
+
+    Returns:
+        Tuple of (video id, title, transcript text).
+    """
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": list(YOUTUBE_CAPTION_LANGS),
+        "subtitlesformat": "json3/vtt/best",
+        "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+        "noplaylist": True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+    except Exception as exc:
+        raise YouTubeError(f"YouTube caption download failed: {exc}") from exc
+
+    if not isinstance(info, dict):
+        raise YouTubeError("Failed to download YouTube captions")
+
+    video_id = info.get("id")
+    if not isinstance(video_id, str) or not video_id:
+        raise YouTubeError("YouTube caption download returned no video id")
+
+    caption_path = _find_caption_file(output_dir, video_id)
+    if caption_path is None:
+        raise YouTubeError("No YouTube captions were available")
+
+    transcript_text = _parse_caption_text(caption_path)
+    if not transcript_text:
+        raise YouTubeError("Downloaded YouTube captions were empty")
+
+    return video_id, info.get("title"), transcript_text
+
+
+def extract_youtube_transcript(
+    video_url: str,
+    audio_dir: Path,
+    transcript_dir: Path,
+    model_name: str,
+) -> tuple[str, str | None, str]:
+    """Extract a YouTube transcript using captions first, then Whisper.
+
+    Args:
+        video_url: YouTube URL.
+        audio_dir: Output directory for audio downloads.
+        transcript_dir: Output directory for transcript artifacts.
+        model_name: Whisper model name for audio fallback.
+
+    Returns:
+        Tuple of (transcript id, title, transcript text).
+    """
+
+    try:
+        return download_captions(video_url, _captions_dir(transcript_dir))
+    except YouTubeError as exc:
+        logger.info("Falling back to audio transcription for %s: %s", video_url, exc)
+
+    audio_path, title = download_audio(video_url, audio_dir)
+    transcript_text = transcribe_audio(audio_path, model_name=model_name)
+    return audio_path.stem, title, transcript_text
 
 
 def _resolve_whisper_device(device_setting: str) -> str:
@@ -303,9 +460,18 @@ def transcribe_youtube_videos(
     transcript_dir.mkdir(parents=True, exist_ok=True)
 
     for video in videos[:max_videos]:
-        audio_path, title = download_audio(video.url, audio_dir)
-        transcript_text = transcribe_audio(audio_path, model_name=model_name)
-        transcript_path = transcript_dir / f"{audio_path.stem}.txt"
+        try:
+            transcript_id, title, transcript_text = extract_youtube_transcript(
+                video.url,
+                audio_dir,
+                transcript_dir,
+                model_name,
+            )
+        except YouTubeError as exc:
+            logger.warning("Skipping YouTube video %s: %s", video.url, exc)
+            continue
+
+        transcript_path = transcript_dir / f"{transcript_id}.txt"
         transcript_path.write_text(transcript_text, encoding="utf-8")
         transcripts.append(
             YouTubeTranscript(
@@ -316,3 +482,109 @@ def transcribe_youtube_videos(
         )
 
     return transcripts
+
+
+def _transcribe_youtube_videos_worker(
+    prompt: str,
+    max_videos: int,
+    audio_dir: Path,
+    transcript_dir: Path,
+    model_name: str,
+    result_queue,
+) -> None:
+    """Run YouTube transcription work inside a child process."""
+
+    try:
+        transcripts = transcribe_youtube_videos(
+            prompt=prompt,
+            max_videos=max_videos,
+            audio_dir=audio_dir,
+            transcript_dir=transcript_dir,
+            model_name=model_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        result_queue.put(
+            {
+                "status": "error",
+                "error": str(exc),
+            }
+        )
+        return
+
+    result_queue.put(
+        {
+            "status": "ok",
+            "transcripts": [item.model_dump() for item in transcripts],
+        }
+    )
+
+
+def transcribe_youtube_videos_with_timeout(
+    prompt: str,
+    max_videos: int,
+    audio_dir: Path,
+    transcript_dir: Path,
+    model_name: str,
+    timeout_seconds: int | float | None,
+) -> list[YouTubeTranscript]:
+    """Run YouTube transcription in a killable child process."""
+
+    if timeout_seconds is None or timeout_seconds <= 0:
+        return transcribe_youtube_videos(
+            prompt=prompt,
+            max_videos=max_videos,
+            audio_dir=audio_dir,
+            transcript_dir=transcript_dir,
+            model_name=model_name,
+        )
+
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_transcribe_youtube_videos_worker,
+        args=(
+            prompt,
+            max_videos,
+            audio_dir,
+            transcript_dir,
+            model_name,
+            result_queue,
+        ),
+    )
+
+    try:
+        process.start()
+        process.join(timeout_seconds)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            if process.is_alive():
+                process.kill()
+                process.join()
+            raise TimeoutError(
+                f"YouTube ingestion timed out after {timeout_seconds} seconds"
+            )
+
+        try:
+            payload = result_queue.get_nowait()
+        except queue.Empty as exc:
+            raise YouTubeError(
+                "YouTube transcription worker exited without returning results"
+            ) from exc
+
+        if not isinstance(payload, dict):
+            raise YouTubeError("YouTube transcription worker returned an invalid payload")
+
+        if payload.get("status") == "error":
+            raise YouTubeError(str(payload.get("error") or "Unknown YouTube worker error"))
+
+        if payload.get("status") != "ok":
+            raise YouTubeError("YouTube transcription worker returned an unknown status")
+
+        transcripts = payload.get("transcripts", [])
+        if not isinstance(transcripts, list):
+            raise YouTubeError("YouTube transcription worker returned invalid transcripts")
+        return [YouTubeTranscript.model_validate(item) for item in transcripts]
+    finally:
+        if hasattr(result_queue, "close"):
+            result_queue.close()

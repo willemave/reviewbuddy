@@ -268,7 +268,7 @@ async def mark_url_fetched(
     db_path: Path,
     run_id: str,
     url: str,
-    html_path: Path,
+    html_path: Path | None,
     markdown_path: Path,
 ) -> None:
     """Mark URL as fetched.
@@ -277,7 +277,7 @@ async def mark_url_fetched(
         db_path: SQLite path.
         run_id: Run identifier.
         url: URL string.
-        html_path: Path to stored HTML.
+        html_path: Path to stored HTML when available.
         markdown_path: Path to stored markdown.
     """
 
@@ -290,7 +290,7 @@ async def mark_url_fetched(
             """,
             (
                 URL_STATUS_FETCHED,
-                str(html_path),
+                str(html_path) if html_path else None,
                 str(markdown_path),
                 datetime.utcnow().isoformat(),
                 run_id,
@@ -344,6 +344,53 @@ async def fetch_run_stats(db_path: Path, run_id: str) -> tuple[int, int, int]:
         fetched = await _count(conn, run_id, URL_STATUS_FETCHED)
         failed = await _count(conn, run_id, URL_STATUS_FAILED)
     return total, fetched, failed
+
+
+async def list_run_urls(
+    db_path: Path,
+    run_id: str,
+    *,
+    status: str | None = None,
+) -> list[UrlRecord]:
+    """List stored URL records for a run.
+
+    Args:
+        db_path: SQLite path.
+        run_id: Run identifier.
+        status: Optional status filter.
+
+    Returns:
+        URL records ordered by insertion order.
+    """
+
+    query = (
+        "SELECT run_id, url, title, source_query, status, html_path, markdown_path, error "
+        "FROM urls WHERE run_id = ?"
+    )
+    params: tuple[str, ...] | tuple[str, str]
+    params = (run_id,)
+    if status is not None:
+        query += " AND status = ?"
+        params = (run_id, status)
+    query += " ORDER BY id ASC"
+
+    async with aiosqlite.connect(db_path) as conn:
+        cursor = await conn.execute(query, params)
+        rows = await cursor.fetchall()
+
+    return [
+        UrlRecord(
+            run_id=row[0],
+            url=row[1],
+            title=row[2],
+            source_query=row[3],
+            status=row[4],
+            html_path=Path(row[5]) if row[5] else None,
+            markdown_path=Path(row[6]) if row[6] else None,
+            error=row[7],
+        )
+        for row in rows
+    ]
 
 
 async def _count(conn: aiosqlite.Connection, run_id: str, status: str | None) -> int:
@@ -417,3 +464,27 @@ def new_url_record(
         source_query=source_query,
         status=URL_STATUS_PENDING,
     )
+
+
+def resolve_run_dir(
+    stored_output_dir: Path,
+    run_id: str,
+    override_output_dir: Path | None = None,
+) -> Path:
+    """Resolve the concrete directory for a run.
+
+    Args:
+        stored_output_dir: Run directory stored with the run record.
+        run_id: Run identifier.
+        override_output_dir: Optional CLI override. When provided, it is treated
+            as the base output directory unless it already points at the run.
+
+    Returns:
+        Absolute or relative path to the run directory.
+    """
+
+    if override_output_dir is None:
+        return stored_output_dir
+    if override_output_dir.name == run_id:
+        return override_output_dir
+    return override_output_dir / run_id

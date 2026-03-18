@@ -13,7 +13,7 @@ def test_clip_text_respects_limit() -> None:
 async def test_summarize_youtube_transcripts_empty() -> None:
     transcripts, usages = await summarize_youtube_transcripts(
         transcripts=[],
-        model_name="gemini-3-flash-preview",
+        model_name="gpt-5.4",
         max_chars=200,
         concurrency=2,
     )
@@ -23,7 +23,10 @@ async def test_summarize_youtube_transcripts_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_summarize_youtube_transcripts_fallback(monkeypatch) -> None:
-    monkeypatch.setattr("app.services.transcript_summarizer.settings.google_api_key", None)
+    async def fail_run(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.services.transcript_summarizer.run_codex_prompt", fail_run)
     items = [
         YouTubeTranscript(
             url="https://youtube.com/watch?v=abc",
@@ -33,7 +36,7 @@ async def test_summarize_youtube_transcripts_fallback(monkeypatch) -> None:
     ]
     transcripts, usages = await summarize_youtube_transcripts(
         transcripts=items,
-        model_name="gemini-3-flash-preview",
+        model_name="gpt-5.4",
         max_chars=20,
         concurrency=1,
     )

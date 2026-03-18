@@ -1,10 +1,8 @@
-"""Agents for RLM-style REPL runs."""
-
-from pydantic_ai import Agent
-from pydantic_ai.settings import ModelSettings
+"""Codex-backed helpers for RLM-style REPL runs."""
 
 from app.agents.base import AgentDeps
 from app.core.settings import get_settings
+from app.services.codex_exec import CodexResponse, run_codex_prompt, run_codex_prompt_sync
 
 settings = get_settings()
 
@@ -17,21 +15,37 @@ RLM_SYSTEM_PROMPT = (
     "When you are finished, respond with FINAL(<your answer>) or FINAL_VAR(<variable>)."
 )
 
-rlm_root_agent = Agent(
-    model=settings.rlm_root_model,
-    output_type=str,
-    deps_type=AgentDeps,
-    model_settings=ModelSettings(temperature=0.2, tool_choice="auto"),
-    system_prompt=RLM_SYSTEM_PROMPT,
+RLM_SUBQUERY_SYSTEM_PROMPT = (
+    "Answer the question using only the provided snippet. If the snippet does not "
+    "contain relevant information, say so clearly and briefly."
 )
 
-rlm_subquery_agent = Agent(
-    model=settings.rlm_subquery_model,
-    output_type=str,
-    deps_type=AgentDeps,
-    model_settings=ModelSettings(temperature=0.2, tool_choice="auto"),
-    system_prompt=(
-        "Answer the question using only the provided snippet. If the snippet does not "
-        "contain relevant information, say so clearly and briefly."
-    ),
-)
+
+async def run_rlm_root_prompt(
+    prompt: str,
+    deps: AgentDeps,
+    model_name: str | None = None,
+) -> tuple[str, CodexResponse]:
+    """Run the root RLM prompt through Codex."""
+
+    del deps
+    response = await run_codex_prompt(
+        f"{RLM_SYSTEM_PROMPT}\n\n{prompt}",
+        model_name=model_name or settings.rlm_root_model,
+    )
+    return response.message, response
+
+
+def run_rlm_subquery_prompt(
+    prompt: str,
+    deps: AgentDeps,
+    model_name: str | None = None,
+) -> tuple[str, CodexResponse]:
+    """Run a synchronous subquery prompt through Codex."""
+
+    del deps
+    response = run_codex_prompt_sync(
+        f"{RLM_SUBQUERY_SYSTEM_PROMPT}\n\n{prompt}",
+        model_name=model_name or settings.rlm_subquery_model,
+    )
+    return response.message, response

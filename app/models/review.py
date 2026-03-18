@@ -49,19 +49,25 @@ class ReviewRunResult(BaseModel):
     synthesis_markdown: str
 
 
-class ExaSearchResult(BaseModel):
-    """Single Exa search result."""
+class SearchResult(BaseModel):
+    """Normalized search result returned by any configured provider."""
 
     url: str
     title: str | None = None
     score: float | None = None
     published_date: str | None = None
+    content_markdown: str | None = None
+    content_html: str | None = None
 
 
-class ExaSearchResponse(BaseModel):
-    """Parsed Exa search response."""
+class SearchResponse(BaseModel):
+    """Parsed search response from the configured provider."""
 
-    results: list[ExaSearchResult]
+    results: list[SearchResult]
+
+
+ExaSearchResult = SearchResult
+ExaSearchResponse = SearchResponse
 
 
 class UrlTask(BaseModel):
@@ -71,6 +77,9 @@ class UrlTask(BaseModel):
     title: str | None = None
     source_query: str
     lane_name: str
+    provider_name: str | None = None
+    provider_markdown: str | None = None
+    provider_html: str | None = None
 
 
 class LaneResult(BaseModel):
@@ -105,3 +114,31 @@ class RunRecord(BaseModel):
     max_agents: int
     headful: bool
     output_dir: Path
+
+
+class FollowupSourceCard(BaseModel):
+    """Distilled source card persisted for follow-up answers."""
+
+    lane_name: str
+    lane_goal: str
+    url: str
+    title: str | None = None
+    source_query: str | None = None
+    source_kind: str
+    distilled_text: str
+    relevance_score: int
+
+    @property
+    def value_density(self) -> float:
+        """Return compactness-aware relevance density."""
+
+        return self.relevance_score / max(len(self.distilled_text), 200)
+
+
+class FollowupMemory(BaseModel):
+    """Persisted run memory used for local follow-up answers."""
+
+    run_id: str
+    prompt: str
+    synthesis_markdown: str
+    source_cards: list[FollowupSourceCard] = Field(default_factory=list)

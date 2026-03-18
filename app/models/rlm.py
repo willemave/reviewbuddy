@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -63,15 +62,3 @@ class RlmRefineRequest(BaseModel):
     root_model: str | None = None
     subquery_model: str | None = None
     max_iterations: int | None = None
-
-
-class DspySynthesisRequest(BaseModel):
-    """Request to synthesize a review using DSPy RLM."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    prompt: str
-    context_docs: list[ContextDocument]
-    max_iterations: int | None = None
-    max_llm_calls: int | None = None
-    run_dir: Path | None = None

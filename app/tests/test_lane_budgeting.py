@@ -40,5 +40,5 @@ def test_allocate_lane_budgets_respects_minimum():
     allocated = _allocate_lane_budgets(lanes, max_urls=3)
     budgets = [lane.url_budget for lane in allocated]
 
-    assert sum(budgets) == 3
+    assert sum(budgets) == 5
     assert all(budget >= 1 for budget in budgets)

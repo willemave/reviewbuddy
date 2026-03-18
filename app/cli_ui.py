@@ -137,6 +137,13 @@ def show_logs(console: Console, logs: Iterable[str]) -> None:
             console.print(line)
 
 
+def show_text(console: Console, text: str) -> None:
+    """Display arbitrary markdown text in a scrollable pager."""
+
+    with console.pager():
+        console.print(text)
+
+
 def prompt_followup(console: Console) -> str | None:
     """Prompt for a follow-up question."""
 
@@ -153,7 +160,7 @@ def prompt_action(console: Console) -> str:
 
     return (
         Prompt.ask(
-            "[f]ollowup, [c]onfig, [l]ogs, [q]uit",
+            "[a]sk, [f]ollowup, [c]onfig, [l]ogs, [q]uit",
             default="q",
             console=console,
         )

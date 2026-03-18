@@ -68,3 +68,12 @@ class ReviewSynthesis(BaseModel):
     recommendation: str = Field(description="Actionable recommendation")
     sources: list[SourceDigest] = Field(description="Top sources used")
     gaps: list[str] = Field(default_factory=list, description="Open questions or gaps")
+
+
+class LaneSynthesis(BaseModel):
+    """Structured synthesis output for a single research lane."""
+
+    summary: str = Field(description="Concise synthesis of this lane's findings")
+    key_findings: list[str] = Field(description="Highest-signal findings from this lane")
+    sources: list[SourceDigest] = Field(description="Top sources used for this lane")
+    gaps: list[str] = Field(default_factory=list, description="Open questions or conflicts in this lane")
