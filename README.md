@@ -46,21 +46,11 @@ Optional:
 scripts/reviewbuddy run "best dishwasher for quiet apartment"
 ```
 
-## Interactive mode
-```bash
-scripts/reviewbuddy interactive
-```
-Interactive mode shows progress, lets you view logs, and ask follow-up questions. On startup it lists recent runs so you can resume an old session or start a new one.
-
 ## Ask a previous session a question
 ```bash
 scripts/reviewbuddy ask <run_id> "What were the main reliability complaints?"
 ```
-
-## Resume a run
-```bash
-scripts/reviewbuddy resume <run_id>
-```
+The `run` command prints the `run_id`, which you can reuse with `ask`.
 
 ## Command reference
 ```bash
@@ -89,7 +79,7 @@ $skill-installer https://github.com/<owner>/<repo>/tree/main/skills/reviewbuddy-
 Bundled skill references:
 - `skills/reviewbuddy-cli/SKILL.md`
 - `skills/reviewbuddy-cli/references/commands.md`
-- `skills/reviewbuddy-cli/references/release.md`
+- `skills/reviewbuddy-cli/references/troubleshooting.md`
 
 ## Agent install guidance
 
@@ -117,7 +107,6 @@ scripts/reviewbuddy commands --agent
 Agent operating rules:
 - Prefer `scripts/reviewbuddy` over raw `uv run reviewbuddy`.
 - Use `scripts/reviewbuddy ask <run_id> "<question>"` for previous-session follow-up questions without re-crawling.
-- Use `scripts/reviewbuddy resume <run_id>` only when interactive continuation is needed.
 - Treat a failing `doctor` command as a hard stop for production use.
 - This repository currently ships as a packaged CLI, not a hosted web service.
 

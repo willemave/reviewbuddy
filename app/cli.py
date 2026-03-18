@@ -11,19 +11,6 @@ from rich.panel import Panel
 from app.agents.base import AgentDeps
 from app.cli_doctor import format_doctor_report, has_doctor_failures, run_doctor_checks
 from app.cli_help import build_command_reference
-from app.cli_ui import (
-    build_followup_prompt,
-    build_progress_reporter,
-    build_progress_ui,
-    configure_interactive_logging,
-    prompt_action,
-    prompt_config_update,
-    prompt_followup,
-    prompt_resume_choice,
-    show_logs,
-    show_report,
-    show_text,
-)
 from app.core.logging import setup_logging
 from app.core.settings import get_settings
 from app.models.review import (
@@ -34,7 +21,7 @@ from app.models.review import (
     ReviewRunStats,
 )
 from app.services.followup import answer_followup_question, load_followup_memory
-from app.services.storage import fetch_run, fetch_run_stats, list_runs, resolve_run_dir
+from app.services.storage import fetch_run, fetch_run_stats, resolve_run_dir
 from app.workflows.review import run_review
 
 app = typer.Typer(add_completion=False)
@@ -184,139 +171,6 @@ def doctor() -> None:
 
 
 @app.command()
-def interactive(
-    prompt: str | None = None,
-    max_urls: int = MAX_URLS_OPTION,
-    max_agents: int = MAX_AGENTS_OPTION,
-    headful: bool = HEADFUL_OPTION,
-    timeout_ms: int = TIMEOUT_OPTION,
-    output_dir: Path = OUTPUT_DIR_OPTION,
-    planner_model: str | None = PLANNER_MODEL_OPTION,
-    sub_agent_model: str | None = SUB_AGENT_MODEL_OPTION,
-) -> None:
-    """Run an interactive session with progress UI and follow-ups."""
-
-    setup_logging(settings.log_level)
-    log_buffer = configure_interactive_logging()
-
-    async def _run() -> None:
-        deps = AgentDeps(session_id="cli", job_id="cli")
-        root_prompt: str
-        current_prompt: str
-        current_report: str | None = None
-        followup_state: FollowupSessionState | None = None
-        should_run = True
-        config = ReviewRunConfig(
-            max_urls=max_urls or settings.max_urls,
-            max_agents=max_agents or settings.max_agents,
-            headful=headful,
-            navigation_timeout_ms=timeout_ms or settings.navigation_timeout_ms,
-            output_dir=output_dir or settings.storage_path,
-            planner_model=planner_model,
-            sub_agent_model=sub_agent_model,
-        )
-
-        runs = await list_runs(settings.database_path, limit=10)
-        if runs and prompt is None:
-            console.print("Recent runs:")
-            for idx, run in enumerate(runs, start=1):
-                console.print(f"{idx}. {run.run_id} [{run.status}] {run.prompt}")
-            choice = prompt_resume_choice(console, [run.run_id for run in runs])
-            if choice > 0 and choice <= len(runs):
-                selected = runs[choice - 1]
-                run_dir = resolve_run_dir(selected.output_dir, selected.run_id)
-                synthesis_path = run_dir / "synthesis.md"
-                if synthesis_path.exists():
-                    synthesis_text = synthesis_path.read_text(encoding="utf-8", errors="ignore")
-                    total, fetched, failed = await fetch_run_stats(
-                        settings.database_path, selected.run_id
-                    )
-                    report = ReviewRunResult(
-                        run_id=selected.run_id,
-                        prompt=selected.prompt,
-                        created_at=selected.created_at,
-                        stats=ReviewRunStats(total_urls=total, fetched=fetched, failed=failed),
-                        synthesis_markdown=synthesis_text,
-                    )
-                    show_report(console, report)
-                    root_prompt = selected.prompt
-                    current_prompt = root_prompt
-                    current_report = synthesis_text
-                    followup_state = FollowupSessionState(
-                        run_id=selected.run_id,
-                        run_dir=run_dir,
-                        prompt=selected.prompt,
-                        synthesis_markdown=synthesis_text,
-                    )
-                    should_run = False
-                else:
-                    console.print("Saved synthesis not found; starting new run.")
-                    root_prompt = typer.prompt("Research question or product to investigate")
-                    current_prompt = root_prompt
-            else:
-                root_prompt = typer.prompt("Research question or product to investigate")
-                current_prompt = root_prompt
-        else:
-            root_prompt = prompt or typer.prompt("Research question or product to investigate")
-            current_prompt = root_prompt
-
-        while True:
-            if should_run:
-                ui = build_progress_ui(console)
-                reporter = build_progress_reporter(ui)
-                ui.start()
-                try:
-                    request = ReviewRunRequest(prompt=current_prompt, **config.model_dump())
-                    result = await run_review(request, deps, reporter=reporter)
-                finally:
-                    ui.stop()
-
-                current_report = result.synthesis_markdown
-                followup_state = FollowupSessionState(
-                    run_id=result.run_id,
-                    run_dir=config.output_dir / result.run_id,
-                    prompt=result.prompt,
-                    synthesis_markdown=result.synthesis_markdown,
-                )
-                show_report(console, result)
-                should_run = False
-
-            while True:
-                action = prompt_action(console)
-                if action in {"q", "quit"}:
-                    return
-                if action in {"a", "ask"}:
-                    followup = prompt_followup(console)
-                    if not followup or followup_state is None:
-                        continue
-                    memory = await _ensure_followup_memory(followup_state)
-                    answer = await answer_followup_question(
-                        memory,
-                        followup,
-                        model_name=config.sub_agent_model,
-                    )
-                    show_text(console, answer)
-                    continue
-                if action in {"l", "logs"}:
-                    show_logs(console, log_buffer.get_lines())
-                    continue
-                if action in {"c", "config"}:
-                    config = prompt_config_update(console, config)
-                    continue
-                if action in {"f", "followup"}:
-                    followup = prompt_followup(console)
-                    if not followup:
-                        continue
-                    if current_report is None:
-                        current_report = ""
-                    current_prompt = build_followup_prompt(root_prompt, current_report, followup)
-                    should_run = True
-                    break
-
-    asyncio.run(_run())
-
-
-@app.command()
 def ask(
     run_id: str = RUN_ID_ARGUMENT,
     question: str = QUESTION_ARGUMENT,
@@ -336,89 +190,6 @@ def ask(
             model_name=sub_agent_model,
         )
         console.print(answer)
-
-    asyncio.run(_run())
-
-
-@app.command()
-def resume(
-    run_id: str = RUN_ID_ARGUMENT,
-    max_urls: int = MAX_URLS_OPTION,
-    max_agents: int = MAX_AGENTS_OPTION,
-    headful: bool = HEADFUL_OPTION,
-    timeout_ms: int = TIMEOUT_OPTION,
-    output_dir: Path = OUTPUT_DIR_OPTION,
-    planner_model: str | None = PLANNER_MODEL_OPTION,
-    sub_agent_model: str | None = SUB_AGENT_MODEL_OPTION,
-) -> None:
-    """Resume a prior run, display its report, and allow follow-ups."""
-
-    setup_logging(settings.log_level)
-    log_buffer = configure_interactive_logging()
-
-    async def _run() -> None:
-        report, followup_state = await _load_followup_state_for_run(run_id, output_dir)
-        show_report(console, report)
-
-        deps = AgentDeps(session_id="cli", job_id="cli")
-        config = ReviewRunConfig(
-            max_urls=max_urls or settings.max_urls,
-            max_agents=max_agents or settings.max_agents,
-            headful=headful,
-            navigation_timeout_ms=timeout_ms or settings.navigation_timeout_ms,
-            output_dir=output_dir or settings.storage_path,
-            planner_model=planner_model,
-            sub_agent_model=sub_agent_model,
-        )
-        root_prompt = report.prompt
-        current_prompt = root_prompt
-        current_report = report.synthesis_markdown
-
-        while True:
-            action = prompt_action(console)
-            if action in {"q", "quit"}:
-                return
-            if action in {"a", "ask"}:
-                followup = prompt_followup(console)
-                if not followup:
-                    continue
-                memory = await _ensure_followup_memory(followup_state)
-                answer = await answer_followup_question(
-                    memory,
-                    followup,
-                    model_name=config.sub_agent_model,
-                )
-                show_text(console, answer)
-                continue
-            if action in {"l", "logs"}:
-                show_logs(console, log_buffer.get_lines())
-                continue
-            if action in {"c", "config"}:
-                config = prompt_config_update(console, config)
-                continue
-            if action in {"f", "followup"}:
-                followup = prompt_followup(console)
-                if not followup:
-                    continue
-                current_prompt = build_followup_prompt(root_prompt, current_report, followup)
-
-                ui = build_progress_ui(console)
-                reporter = build_progress_reporter(ui)
-                ui.start()
-                try:
-                    request = ReviewRunRequest(prompt=current_prompt, **config.model_dump())
-                    result = await run_review(request, deps, reporter=reporter)
-                finally:
-                    ui.stop()
-
-                current_report = result.synthesis_markdown
-                followup_state = FollowupSessionState(
-                    run_id=result.run_id,
-                    run_dir=config.output_dir / result.run_id,
-                    prompt=result.prompt,
-                    synthesis_markdown=result.synthesis_markdown,
-                )
-                show_report(console, result)
 
     asyncio.run(_run())
 
