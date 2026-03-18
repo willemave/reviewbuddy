@@ -12,12 +12,16 @@ from app.core.settings import Settings
 def test_format_doctor_report_includes_statuses() -> None:
     report = format_doctor_report(
         [
-            DoctorCheck(name="codex", ok=True, detail="/usr/local/bin/codex"),
+            DoctorCheck(
+                name="local agent harness",
+                ok=True,
+                detail="codex: /usr/local/bin/codex",
+            ),
             DoctorCheck(name="OPENAI_API_KEY", ok=False, detail="missing"),
         ]
     )
 
-    assert "[OK] codex" in report
+    assert "[OK] local agent harness" in report
     assert "[FAIL] OPENAI_API_KEY" in report
     assert "Failures: 1" in report
 

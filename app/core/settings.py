@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     synthesizer_model: str = "gpt-5.4"
     agent_timeout_seconds: int = 120
     agent_temperature: float = 0.6
+    agent_exec_path: str = ""
+    agent_exec_candidates: list[str] = Field(default_factory=lambda: ["codex", "claude", "amp"])
+    agent_exec_command_template: str = ""
+    agent_exec_sandbox: str = "read-only"
+    agent_exec_model_reasoning_effort: str = "low"
+    agent_exec_extra_args: list[str] = Field(default_factory=list)
     codex_exec_path: str = "codex"
     codex_exec_sandbox: str = "read-only"
     codex_exec_model_reasoning_effort: str = "low"

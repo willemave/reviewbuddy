@@ -44,10 +44,10 @@ def test_doctor_command_returns_nonzero_on_failures(monkeypatch) -> None:
     monkeypatch.setattr(
         cli,
         "run_doctor_checks",
-        lambda _settings: [DoctorCheck(name="codex", ok=False, detail="missing")],
+        lambda _settings: [DoctorCheck(name="local agent harness", ok=False, detail="missing")],
     )
 
     result = runner.invoke(cli.app, ["doctor"])
 
     assert result.exit_code == 1
-    assert "[FAIL] codex" in result.stdout
+    assert "[FAIL] local agent harness" in result.stdout

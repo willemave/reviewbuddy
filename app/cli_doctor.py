@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.settings import Settings
+from app.services.codex_exec import detect_local_agent_harness
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ def run_doctor_checks(settings: Settings) -> list[DoctorCheck]:
     checks = [
         _check_env_var("OPENAI_API_KEY"),
         _check_search_provider(settings),
-        _check_binary("codex", settings.codex_exec_path),
+        _check_local_agent_harness(settings),
         _check_binary("uv", "uv"),
         _check_binary("ffmpeg", "ffmpeg"),
         _check_storage_path(settings.storage_path),
@@ -91,6 +92,23 @@ def _check_binary(name: str, binary: str) -> DoctorCheck:
     if path:
         return DoctorCheck(name=name, ok=True, detail=path)
     return DoctorCheck(name=name, ok=False, detail=f"{binary} not found in PATH")
+
+
+def _check_local_agent_harness(settings: Settings) -> DoctorCheck:
+    resolved = detect_local_agent_harness(settings)
+    if resolved is None:
+        candidates = ", ".join(settings.agent_exec_candidates)
+        return DoctorCheck(
+            name="local agent harness",
+            ok=False,
+            detail=f"none found (checked: {candidates})",
+        )
+    harness_name, executable = resolved
+    return DoctorCheck(
+        name="local agent harness",
+        ok=True,
+        detail=f"{harness_name}: {executable}",
+    )
 
 
 def _check_storage_path(path: Path) -> DoctorCheck:
