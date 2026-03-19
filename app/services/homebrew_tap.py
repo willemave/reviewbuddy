@@ -88,30 +88,35 @@ def render_formula(request: TapExportRequest) -> str:
     source_url = build_source_tarball_url(request)
     homepage = build_source_homepage(request)
     skill_path = "#{opt_pkgshare}/skills/reviewbuddy-tap-maintainer"
-    playwright_command = "#{opt_libexec}/bin/python -m playwright install"
+    bootstrap_url = (
+        f"git+https://github.com/{request.github_owner}/{request.source_repo}.git@v{request.version}"
+    )
     return f'''class {class_name} < Formula
-  include Language::Python::Virtualenv
-
   desc "{request.app_description}"
   homepage "{homepage}"
   url "{source_url}"
   sha256 "REPLACE_WITH_RELEASE_SHA256"
 
   depends_on "ffmpeg"
-  depends_on "{request.python_formula}"
+  depends_on "uv"
 
   def install
-    virtualenv = virtualenv_create(libexec, Formula["{request.python_formula}"].opt_bin/"python3.13")
-    system virtualenv.root/"bin/pip", "install", "."
-    bin.install_symlink virtualenv.root/"bin/reviewbuddy"
+    (bin/"reviewbuddy").write <<~SH
+      #!/usr/bin/env bash
+      set -euo pipefail
+      exec "#{{Formula["uv"].opt_bin}}/uv" tool run --from "{bootstrap_url}" reviewbuddy "$@"
+    SH
     pkgshare.install "skills"
     pkgshare.install "docs"
   end
 
   def caveats
     <<~EOS
-      ReviewBuddy requires additional runtime setup:
-        - Install Playwright browsers: {playwright_command}
+      ReviewBuddy bootstraps the tagged CLI package through uv on first run:
+        #{{Formula["uv"].opt_bin}}/uv tool run --from "{bootstrap_url}" reviewbuddy
+
+      Additional runtime setup:
+        - Install Playwright browsers after bootstrap if `reviewbuddy doctor` reports they are missing
         - Install and authenticate codex: codex login
         - Set OPENAI_API_KEY and one search provider key (EXA_API_KEY, TAVILY_API_KEY, or FIRECRAWL_API_KEY)
         - Run `reviewbuddy doctor` before first use
@@ -122,9 +127,8 @@ def render_formula(request: TapExportRequest) -> str:
   end
 
   test do
-    output = shell_output("#{{bin}}/reviewbuddy commands --agent")
-    assert_match "ReviewBuddy CLI For Agents", output
-    assert_match "reviewbuddy doctor", output
+    assert_match "uv tool run --from", (bin/"reviewbuddy").read
+    assert_predicate pkgshare/"skills/reviewbuddy-tap-maintainer/SKILL.md", :exist?
   end
 end
 '''

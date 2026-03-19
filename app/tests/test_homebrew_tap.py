@@ -29,8 +29,9 @@ def test_render_formula_includes_expected_tap_metadata(tmp_path: Path) -> None:
         'url "https://github.com/willemave/reviewbuddy/archive/refs/tags/v0.1.0.tar.gz"' in formula
     )
     assert 'depends_on "ffmpeg"' in formula
+    assert 'depends_on "uv"' in formula
     assert 'pkgshare.install "skills"' in formula
-    assert 'shell_output("#{bin}/reviewbuddy commands --agent")' in formula
+    assert 'uv" tool run --from "git+https://github.com/willemave/reviewbuddy.git@v0.1.0"' in formula
 
 
 def test_export_tap_repository_writes_expected_files(tmp_path: Path) -> None:
