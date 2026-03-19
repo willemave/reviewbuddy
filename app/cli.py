@@ -1,6 +1,7 @@
 """CLI entrypoint for ReviewBuddy."""
 
 import asyncio
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,8 +12,10 @@ from rich.panel import Panel
 from app.agents.base import AgentDeps
 from app.cli_doctor import format_doctor_report, has_doctor_failures, run_doctor_checks
 from app.cli_help import build_command_reference
+from app.constants import APP_VERSION
 from app.core.logging import setup_logging
 from app.core.settings import get_settings
+from app.models.homebrew import TapExportRequest
 from app.models.review import (
     FollowupMemory,
     ReviewRunConfig,
@@ -21,10 +24,13 @@ from app.models.review import (
     ReviewRunStats,
 )
 from app.services.followup import answer_followup_question, load_followup_memory
+from app.services.homebrew_tap import detect_github_remote, export_tap_repository
 from app.services.storage import fetch_run, fetch_run_stats, resolve_run_dir
 from app.workflows.review import run_review
 
 app = typer.Typer(add_completion=False)
+tap_app = typer.Typer(help="Generate Homebrew tap assets.")
+app.add_typer(tap_app, name="tap")
 console = Console()
 settings = get_settings()
 
@@ -38,6 +44,7 @@ TIMEOUT_OPTION = typer.Option(None, help="Navigation timeout in ms")
 OUTPUT_DIR_OPTION = typer.Option(None, help="Base output directory")
 PLANNER_MODEL_OPTION = typer.Option(None, help="Override model for the lane planner agent")
 SUB_AGENT_MODEL_OPTION = typer.Option(None, help="Override model for sub-agents")
+TAP_OUTPUT_OPTION = typer.Option(None, help="Output directory for the generated Homebrew tap repo")
 
 
 @dataclass
@@ -192,6 +199,53 @@ def ask(
         console.print(answer)
 
     asyncio.run(_run())
+
+
+@tap_app.command("export")
+def export_tap(
+    output_dir: Path | None = TAP_OUTPUT_OPTION,
+    github_owner: str | None = typer.Option(None, help="GitHub owner for source and tap repos"),
+    source_repo: str | None = typer.Option(None, help="Source repository name"),
+    tap_repo: str = typer.Option("homebrew-reviewbuddy", help="Tap repository name"),
+) -> None:
+    """Generate a Homebrew tap repository for ReviewBuddy."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    remote = detect_github_remote(repo_root)
+    resolved_owner = github_owner
+    resolved_source_repo = source_repo
+    if remote is not None:
+        resolved_owner = resolved_owner or remote[0]
+        resolved_source_repo = resolved_source_repo or remote[1]
+
+    if not resolved_owner or not resolved_source_repo:
+        console.print("Could not infer the GitHub owner/repo from git remote origin.")
+        console.print("Pass --github-owner and --source-repo explicitly.")
+        raise typer.Exit(code=1)
+
+    target_output_dir = output_dir or (repo_root.parent / tap_repo)
+    request = TapExportRequest(
+        output_dir=target_output_dir,
+        github_owner=resolved_owner,
+        source_repo=resolved_source_repo,
+        tap_repo=tap_repo,
+        version=APP_VERSION,
+        app_description="AI-powered review research assistant with parallel crawling and synthesis",
+    )
+    result = export_tap_repository(request)
+
+    if not (result.output_dir / ".git").exists():
+        subprocess.run(
+            ["git", "init", "-b", "main", str(result.output_dir)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    console.print(Panel.fit("ReviewBuddy tap repository exported", style="green"))
+    console.print(f"Output: {result.output_dir}")
+    for path in result.files:
+        console.print(f"- {path.relative_to(result.output_dir)}")
 
 
 def main() -> None:

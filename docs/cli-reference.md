@@ -39,3 +39,12 @@ Check whether the current machine is ready to run the CLI.
 
 Example:
 - `reviewbuddy doctor`
+
+## `reviewbuddy tap export [--output-dir PATH]`
+Generate a Homebrew tap repository for publishing ReviewBuddy.
+
+- Writes `Formula/`, `README.md`, a validation workflow, and a tap-maintainer skill.
+- Defaults to the GitHub origin remote and writes to `../homebrew-reviewbuddy` when possible.
+
+Example:
+- `reviewbuddy tap export`

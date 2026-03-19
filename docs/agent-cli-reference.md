@@ -39,3 +39,12 @@ Behavior:
 - Use this before handing the tool to another bot or promoting a runtime to production.
 Example:
 - `reviewbuddy doctor`
+
+## tap export
+Usage: `reviewbuddy tap export [--output-dir PATH]`
+Purpose: Generate a Homebrew tap repository for publishing ReviewBuddy.
+Behavior:
+- Writes `Formula/`, `README.md`, a validation workflow, and a tap-maintainer skill.
+- Defaults to the GitHub origin remote and writes to `../homebrew-reviewbuddy` when possible.
+Example:
+- `reviewbuddy tap export`

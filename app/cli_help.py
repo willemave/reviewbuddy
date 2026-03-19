@@ -57,6 +57,16 @@ CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
         ),
         examples=("reviewbuddy doctor",),
     ),
+    CliCommandHelp(
+        name="tap export",
+        usage="reviewbuddy tap export [--output-dir PATH]",
+        summary="Generate a Homebrew tap repository for publishing ReviewBuddy.",
+        details=(
+            "Writes Formula/, README.md, a validation workflow, and a tap-maintainer skill.",
+            "Defaults to the GitHub origin remote and writes to ../homebrew-reviewbuddy when possible.",
+        ),
+        examples=("reviewbuddy tap export",),
+    ),
 )
 
 CLI_REFERENCE_PATH = "docs/cli-reference.md"

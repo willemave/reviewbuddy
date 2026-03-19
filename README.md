@@ -63,6 +63,7 @@ Reference files:
 - `docs/cli-reference.md`
 - `docs/agent-cli-reference.md`
 - `docs/deploy.md`
+- `docs/homebrew.md`
 
 ## Install the ReviewBuddy skill
 
@@ -109,6 +110,20 @@ Agent operating rules:
 - Use `scripts/reviewbuddy ask <run_id> "<question>"` for previous-session follow-up questions without re-crawling.
 - Treat a failing `doctor` command as a hard stop for production use.
 - This repository currently ships as a packaged CLI, not a hosted web service.
+
+## Homebrew tap export
+
+Generate a sibling tap repository:
+
+```bash
+reviewbuddy tap export
+```
+
+This writes a `homebrew-reviewbuddy` repository next to the source repo with:
+- `Formula/reviewbuddy.rb`
+- a tap README
+- a GitHub Actions validation workflow
+- a tap-maintainer skill under `skills/reviewbuddy-tap-maintainer`
 
 ## Output
 Each run writes files under:
