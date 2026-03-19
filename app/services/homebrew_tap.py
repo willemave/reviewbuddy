@@ -87,7 +87,7 @@ def render_formula(request: TapExportRequest) -> str:
     class_name = request.formula_name.replace("-", " ").replace("_", " ").title().replace(" ", "")
     source_url = build_source_tarball_url(request)
     homepage = build_source_homepage(request)
-    skill_path = "#{opt_pkgshare}/skills/reviewbuddy-tap-maintainer"
+    skill_path = "#{opt_pkgshare}/skills/reviewbuddy-cli"
     bootstrap_url = (
         f"git+https://github.com/{request.github_owner}/{request.source_repo}.git@v{request.version}"
     )
@@ -128,7 +128,7 @@ def render_formula(request: TapExportRequest) -> str:
 
   test do
     assert_match "tool run --from", (bin/"reviewbuddy").read
-    assert_path_exists pkgshare/"skills/reviewbuddy-tap-maintainer/SKILL.md"
+    assert_path_exists pkgshare/"skills/reviewbuddy-cli/SKILL.md"
   end
 end
 '''
