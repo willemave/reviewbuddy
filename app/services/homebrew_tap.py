@@ -96,13 +96,14 @@ def render_formula(request: TapExportRequest) -> str:
   homepage "{homepage}"
   url "{source_url}"
   sha256 "REPLACE_WITH_RELEASE_SHA256"
-  version "{request.version}"
 
   depends_on "ffmpeg"
   depends_on "{request.python_formula}"
 
   def install
-    virtualenv_install_with_resources
+    virtualenv = virtualenv_create(libexec, Formula["{request.python_formula}"].opt_bin/"python3.13")
+    system virtualenv.root/"bin/pip", "install", "."
+    bin.install_symlink virtualenv.root/"bin/reviewbuddy"
     pkgshare.install "skills"
     pkgshare.install "docs"
   end
@@ -159,7 +160,7 @@ brew install {short_tap}/{formula_name}
    ```bash
    curl -L {build_source_tarball_url(request)} | shasum -a 256
    ```
-3. Update `Formula/{formula_name}.rb` with the new `url`, `sha256`, and `version`.
+3. Update `Formula/{formula_name}.rb` with the new `url` and `sha256`.
 4. Validate locally:
    ```bash
    brew audit --strict --online {formula_name}
@@ -198,7 +199,7 @@ Use this skill when the task is to publish or update the ReviewBuddy Homebrew ta
 
 1. Confirm the source repo has a pushed Git tag for the target release.
 2. Open `Formula/reviewbuddy.rb`.
-3. Update `url`, `sha256`, and `version`.
+3. Update `url` and `sha256`.
 4. Run:
    ```bash
    brew audit --strict --online reviewbuddy
@@ -241,7 +242,6 @@ def render_skill_publishing_reference(request: TapExportRequest) -> str:
 3. Update the formula fields:
    - `url`
    - `sha256`
-   - `version`
 4. Validate:
    ```bash
    brew audit --strict --online reviewbuddy
