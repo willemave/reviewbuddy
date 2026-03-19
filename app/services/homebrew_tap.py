@@ -128,7 +128,7 @@ def render_formula(request: TapExportRequest) -> str:
 
   test do
     assert_match "uv tool run --from", (bin/"reviewbuddy").read
-    assert_predicate pkgshare/"skills/reviewbuddy-tap-maintainer/SKILL.md", :exist?
+    assert_path_exists pkgshare/"skills/reviewbuddy-tap-maintainer/SKILL.md"
   end
 end
 '''
