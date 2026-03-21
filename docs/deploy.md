@@ -15,6 +15,22 @@ For bots, the shortest path is:
 3. Let the bot install the skill from `skills/reviewbuddy-cli` if it supports SKILL.md skills.
 4. Run `reviewbuddy doctor` inside the bot environment.
 
+For Hermes/OpenClaw-style agents, the easiest install prompt is:
+
+```text
+Install ReviewBuddy with Homebrew:
+
+brew tap willemave/reviewbuddy
+brew install reviewbuddy
+reviewbuddy commands --agent
+reviewbuddy doctor
+
+If you support SKILL.md directories, load:
+$(brew --prefix)/opt/reviewbuddy/share/reviewbuddy/skills/reviewbuddy-cli
+
+Do not start research runs until `reviewbuddy doctor` passes.
+```
+
 ## Skill repository format
 
 Based on the public Agent Skills examples and documentation, the safest GitHub layout for installable skills is:
