@@ -4,9 +4,13 @@ ReviewBuddy turns a messy product question into a short, cited recommendation.
 
 Instead of one giant prompt, it plans parallel research lanes, crawls the web locally, distills each source into dense evidence cards, and merges lane summaries into one final answer. It is built for agents first, but it is also a solid local CLI.
 
+It can use your local coding harness for summarization and synthesis, so agent installs that already run through Codex, Claude, or similar local harnesses do not need separate LLM API keys for that layer.
+
 ## Agent install
 
 If you are installing ReviewBuddy into Hermes, OpenClaw, or another agent that supports `SKILL.md` directories, install the CLI first and then install the bundled skill from `skills/reviewbuddy-cli`.
+
+ReviewBuddy still needs a search provider key for web discovery, but summarization can run through the local coding harness already available to the agent runtime.
 
 Paste this into Hermes or another OpenClaw-style agent:
 
