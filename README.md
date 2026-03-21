@@ -1,12 +1,8 @@
 # ReviewBuddy
 
-ReviewBuddy is an AI-powered research assistant that turns a question or product query into a concise recommendation. It plans research lanes, searches the web, crawls pages locally, summarizes sources, and produces a final report.
+ReviewBuddy turns a messy product question into a short, cited recommendation.
 
-## What it does
-- Plans 4–8 research lanes per query
-- Searches and crawls sources (forums, blogs, discussions, reviews)
-- Adds YouTube transcripts (local Whisper) and Reddit summaries when available
-- Synthesizes a short, cited recommendation
+Instead of one giant prompt, it plans parallel research lanes, crawls the web locally, distills each source into dense evidence cards, and merges lane summaries into one final answer. It is built for agents first, but it is also a solid local CLI.
 
 ## Agent install
 
@@ -41,65 +37,73 @@ Codex skill installer example:
 $skill-installer https://github.com/<owner>/<repo>/tree/main/skills/reviewbuddy-cli
 ```
 
-## Requirements
-- Python 3.13 (recommended)
-- `uv` for dependency management
+## Why it works
+
+- `Parallel lanes`: ReviewBuddy breaks a query into 4-8 independent lanes like owner feedback, reliability, value, alternatives, and complaints.
+- `Refinement loops`: early evidence inside a lane generates better follow-up queries before the full crawl is finished.
+- `Dense evidence cards`: each source is compressed into highlights, quantitative signals, caveats, and URLs before synthesis.
+- `Hierarchical summaries`: each lane is summarized first, and larger runs are merged again before the final answer so long evidence sets stay usable.
+- `Follow-up memory`: `reviewbuddy ask <run_id> "..."` answers new questions from stored evidence instead of re-crawling.
+- `Local ingestion`: Playwright crawling, Reddit handling, YouTube captions with Whisper fallback, PDF summaries, and headful retry when sites block headless browsers.
+
+Single-shot prompts are faster. This architecture is usually harder to fool.
+
+## Research precedent
+
+ReviewBuddy does not implement these papers directly, but the design lines up with a few strong ideas:
+
+- `Task decomposition`: [Least-to-Most Prompting Enables Complex Reasoning in Large Language Models](https://arxiv.org/abs/2205.10625)
+- `Relevance + diversity`: [The Use of MMR, Diversity-Based Reranking for Reordering Documents and Producing Summaries](https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf)
+- `Hierarchical merging for long inputs`: [BooookScore: A systematic exploration of book-length summarization in the era of LLMs](https://arxiv.org/html/2310.00785v4)
+- `Hierarchical LLM-agent summarization`: [NexusSum: Hierarchical LLM Agents for Long-Form Narrative Summarization](https://arxiv.org/html/2505.24575v1)
+- `Evidence-grounded generation`: [Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401)
+
+That is the basic shape: split the job, collect diverse evidence, compress aggressively, then synthesize with citations.
+
+## Quickstart
+
+Requirements:
+- Python 3.13
+- `uv`
 - Playwright browsers
 
-## Setup
+Setup:
+
 ```bash
 scripts/reviewbuddy setup
 ```
 
 What `setup` does:
-- Persists a detected search provider from `~/.hermes/.env` or `~/.openclaw/openclaw.json` into the local `.env` when available
-- Creates the storage and database paths
+- Detects search-provider settings from `~/.hermes/.env` or `~/.openclaw/openclaw.json` when available
+- Creates storage and database paths
 - Installs Playwright browsers by default
+- Reruns `doctor` checks
 
 Manual equivalent:
+
 ```bash
 uv sync
 uv run playwright install
-cp .env.example .env   # add API keys if auto-detection is unavailable
 ```
 
-Simple local entrypoint:
-```bash
-scripts/reviewbuddy --help
-```
+If auto-detection is unavailable, copy `.env.example` to `.env` and add your provider keys.
 
-Required env vars:
-- One provider API key for the selected search backend. If `SEARCH_PROVIDER` is unset, ReviewBuddy auto-selects from any configured provider key in this order: `EXA_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`.
-- Optional override: `SEARCH_PROVIDER` (`exa`, `tavily`, or `firecrawl`)
-- Provider API key for the selected search backend:
-  - `EXA_API_KEY`
-  - `TAVILY_API_KEY`
-  - `FIRECRAWL_API_KEY`
+Run a research pass:
 
-ReviewBuddy also auto-loads search settings from local agent installs:
-- Hermes: `~/.hermes/.env`
-- OpenClaw: `~/.openclaw/openclaw.json`
-
-Optional:
-- `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`
-- Provider tuning:
-  - `SEARCH_NUM_RESULTS`, `SEARCH_MIN_RESULTS_PER_QUERY`
-  - `EXA_SEARCH_TYPE`, `EXA_USER_LOCATION`
-  - `TAVILY_SEARCH_DEPTH`, `TAVILY_TOPIC`, `TAVILY_AUTO_PARAMETERS`
-  - `FIRECRAWL_COUNTRY`, `FIRECRAWL_LOCATION`
-
-## Run (one-shot)
 ```bash
 scripts/reviewbuddy run "best dishwasher for quiet apartment"
 ```
 
-## Ask a previous session a question
+Ask a saved run a follow-up:
+
 ```bash
 scripts/reviewbuddy ask <run_id> "What were the main reliability complaints?"
 ```
-The `run` command prints the `run_id`, which you can reuse with `ask`.
 
-## Command reference
+The `run` command prints the `run_id`.
+
+## Common commands
+
 ```bash
 scripts/reviewbuddy commands
 scripts/reviewbuddy commands --agent
@@ -107,47 +111,38 @@ scripts/reviewbuddy setup
 scripts/reviewbuddy doctor
 ```
 
-Reference files:
-- `docs/cli-reference.md`
-- `docs/agent-cli-reference.md`
-- `docs/deploy.md`
-- `docs/homebrew.md`
+## Environment
 
-## Agent install guidance
+Required:
+- One search provider API key. If `SEARCH_PROVIDER` is unset, ReviewBuddy auto-selects from `EXA_API_KEY`, `TAVILY_API_KEY`, then `FIRECRAWL_API_KEY`.
 
-If you are an agent or automation installing this repository, use this order:
+Common optional settings:
+- `SEARCH_PROVIDER` (`exa`, `tavily`, or `firecrawl`)
+- `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`
 
-1. Install the CLI or clone the repository.
-2. Install the skill from `skills/reviewbuddy-cli`.
-3. Run `scripts/reviewbuddy setup`.
-4. Run `scripts/reviewbuddy commands --agent`.
-5. Only start research runs after `doctor` passes.
+ReviewBuddy also auto-loads search settings from local agent installs:
+- Hermes: `~/.hermes/.env`
+- OpenClaw: `~/.openclaw/openclaw.json`
 
-Recommended GitHub skill install target:
+## Output
+
+Each run writes a research bundle under:
+
 ```text
-https://github.com/<owner>/<repo>/tree/main/skills/reviewbuddy-cli
+data/storage/<run_id>/
 ```
 
-Bundled skill references:
-- `skills/reviewbuddy-cli/SKILL.md`
-- `skills/reviewbuddy-cli/references/commands.md`
-- `skills/reviewbuddy-cli/references/troubleshooting.md`
+Useful files:
+- `synthesis.md`: final report
+- `run.log`: detailed logs
+- `lanes/`: per-lane crawl snapshots
+- `markdown/` and `html/`: captured source material
 
-Recommended CLI preflight:
-```bash
-scripts/reviewbuddy setup
-scripts/reviewbuddy commands --agent
-```
+## Notes
 
-Agent operating rules:
-- Prefer `scripts/reviewbuddy` over raw `uv tool run --from . reviewbuddy`.
-- The local wrapper delegates to `uv tool run --from . reviewbuddy`.
-- Use `scripts/reviewbuddy setup` to turn detected Hermes/OpenClaw provider config into a local repo `.env`.
-- Use `scripts/reviewbuddy ask <run_id> "<question>"` for previous-session follow-up questions without re-crawling.
-- Treat a failing `doctor` command as a hard stop for production use.
-- Local agent harnesses such as Codex and Claude do not require `OPENAI_API_KEY` for ReviewBuddy itself.
-- `reviewbuddy doctor` auto-detects Hermes and OpenClaw installs and uses their search-provider configuration when available.
-- This repository currently ships as a packaged CLI, not a hosted web service.
+- Run `codex login` locally before using LLM-backed workflows.
+- `codex` must be installed and authenticated for agent execution paths.
+- `reviewbuddy doctor` is the hard stop before production or automation use.
 
 ## Homebrew tap export
 
@@ -157,41 +152,11 @@ Generate a sibling tap repository:
 reviewbuddy tap export
 ```
 
-This writes a `homebrew-reviewbuddy` repository next to the source repo with:
-- `Formula/reviewbuddy.rb`
-- a tap README
-- a GitHub Actions validation workflow
-- a tap-maintainer skill under `skills/reviewbuddy-tap-maintainer`
+This writes a `homebrew-reviewbuddy` repository next to the source repo with the formula, README, validation workflow, and tap-maintainer skill.
 
-## Output
-Each run writes files under:
-```
-data/storage/<run_id>/
-```
-Key files:
-- `synthesis.md` — final report
-- `run.log` — detailed logs
-- `html/` and `markdown/` — crawled sources
+## Docs
 
-## Notes
-- Run `codex login` locally before using the LLM-backed workflows.
-- `codex` must be installed and authenticated for agent execution paths.
-- YouTube transcripts are produced locally via Whisper.
-- Reddit uses the API when credentials are provided.
-- PDF summaries are generated through `codex exec` after local text extraction.
-
-## Release and production
-For the current repo shape, production means shipping the CLI cleanly.
-
-Local preflight:
-```bash
-./scripts/release-check.sh
-```
-
-Bot/runtime preflight:
-```bash
-scripts/reviewbuddy doctor
-```
-
-Release guide:
+- `docs/cli-reference.md`
+- `docs/agent-cli-reference.md`
 - `docs/deploy.md`
+- `docs/homebrew.md`
