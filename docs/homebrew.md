@@ -52,3 +52,24 @@ reviewbuddy tap export --output-dir /absolute/path/to/homebrew-reviewbuddy
 brew tap <owner>/reviewbuddy
 brew install reviewbuddy
 ```
+
+## Hermes / OpenClaw paste block
+
+Paste this into Hermes or another OpenClaw-style agent:
+
+```text
+Install ReviewBuddy with Homebrew:
+
+brew tap willemave/reviewbuddy
+brew install reviewbuddy
+reviewbuddy commands --agent
+reviewbuddy doctor
+
+If you support SKILL.md directories, load this bundled skill:
+$(brew --prefix)/opt/reviewbuddy/share/reviewbuddy/skills/reviewbuddy-cli
+
+Read:
+- $(brew --prefix)/opt/reviewbuddy/share/reviewbuddy/skills/reviewbuddy-cli/SKILL.md
+
+Do not start research runs until `reviewbuddy doctor` passes.
+```

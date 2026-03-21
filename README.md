@@ -82,6 +82,27 @@ Bundled skill references:
 - `skills/reviewbuddy-cli/references/commands.md`
 - `skills/reviewbuddy-cli/references/troubleshooting.md`
 
+## Hermes / OpenClaw quick install
+
+Paste this into Hermes or another OpenClaw-style agent:
+
+```text
+Install ReviewBuddy with Homebrew:
+
+brew tap willemave/reviewbuddy
+brew install reviewbuddy
+reviewbuddy commands --agent
+reviewbuddy doctor
+
+If you support SKILL.md directories, load this bundled skill:
+$(brew --prefix)/opt/reviewbuddy/share/reviewbuddy/skills/reviewbuddy-cli
+
+Read:
+- $(brew --prefix)/opt/reviewbuddy/share/reviewbuddy/skills/reviewbuddy-cli/SKILL.md
+
+Do not start research runs until `reviewbuddy doctor` passes.
+```
+
 ## Agent install guidance
 
 If you are an agent or automation installing this repository, use this order:
