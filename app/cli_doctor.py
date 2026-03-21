@@ -9,6 +9,11 @@ from pathlib import Path
 from app.core.settings import Settings
 from app.services.codex_exec import detect_local_agent_harness
 
+SEARCH_PROVIDER_SIGNUP_URLS = {
+    "exa": "https://dashboard.exa.ai/api-keys",
+    "firecrawl": "https://www.firecrawl.dev/app/api-keys",
+}
+
 
 @dataclass(frozen=True)
 class DoctorCheck:
@@ -83,7 +88,19 @@ def _check_search_provider(settings: Settings) -> DoctorCheck:
         return DoctorCheck(
             name="search provider",
             ok=False,
-            detail="no provider API key configured (set EXA_API_KEY, TAVILY_API_KEY, or FIRECRAWL_API_KEY)",
+            detail=(
+                "no provider API key configured "
+                "(set EXA_API_KEY, TAVILY_API_KEY, or FIRECRAWL_API_KEY; "
+                "Exa signup: https://dashboard.exa.ai/api-keys; "
+                "Firecrawl signup: https://www.firecrawl.dev/app/api-keys)"
+            ),
+        )
+    signup_url = SEARCH_PROVIDER_SIGNUP_URLS.get(provider)
+    if signup_url:
+        return DoctorCheck(
+            name=f"{provider} provider",
+            ok=False,
+            detail=f"{key_name} missing (get one at {signup_url})",
         )
     return DoctorCheck(name=f"{provider} provider", ok=False, detail=f"{key_name} missing")
 
