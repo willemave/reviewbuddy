@@ -72,6 +72,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 * **Environment management**: `.env.example` template; never commit `.env`. Use `app/core/settings.py` and Pydantic for settings.
 * **Database migrations**: Alembic with descriptive revision messages.
 * **Error responses**: Consistent format with error codes, messages, details.
+* **Versioned releases**: If the user asks to "commit and push" changes that should ship through Homebrew/tap, also bump the app version in `pyproject.toml` and `app/constants.py`, create/push a new git tag, and update the tap formula to point at the new tagged release and SHA.
 
 ---
 

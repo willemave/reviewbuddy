@@ -16,7 +16,7 @@ def build_request(tmp_path: Path) -> TapExportRequest:
         github_owner="willemave",
         source_repo="reviewbuddy",
         tap_repo="homebrew-reviewbuddy",
-        version="0.1.0",
+        version="0.1.1",
         app_description="AI-powered review research assistant with parallel crawling and synthesis",
     )
 
@@ -26,12 +26,12 @@ def test_render_formula_includes_expected_tap_metadata(tmp_path: Path) -> None:
 
     assert 'homepage "https://github.com/willemave/reviewbuddy"' in formula
     assert (
-        'url "https://github.com/willemave/reviewbuddy/archive/refs/tags/v0.1.0.tar.gz"' in formula
+        'url "https://github.com/willemave/reviewbuddy/archive/refs/tags/v0.1.1.tar.gz"' in formula
     )
     assert 'depends_on "ffmpeg"' in formula
     assert 'depends_on "uv"' in formula
     assert 'pkgshare.install "skills"' in formula
-    assert 'uv" tool run --from "git+https://github.com/willemave/reviewbuddy.git@v0.1.0"' in formula
+    assert 'uv" tool run --from "git+https://github.com/willemave/reviewbuddy.git@v0.1.1"' in formula
 
 
 def test_export_tap_repository_writes_expected_files(tmp_path: Path) -> None:
@@ -63,7 +63,7 @@ def test_build_short_tap_name_removes_homebrew_prefix(tmp_path: Path) -> None:
 def test_build_source_tarball_url_uses_versioned_tag(tmp_path: Path) -> None:
     url = build_source_tarball_url(build_request(tmp_path))
 
-    assert url.endswith("/archive/refs/tags/v0.1.0.tar.gz")
+    assert url.endswith("/archive/refs/tags/v0.1.1.tar.gz")
 
 
 def test_detect_github_remote_returns_none_for_missing_origin(tmp_path: Path) -> None:

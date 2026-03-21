@@ -69,7 +69,7 @@ reviewbuddy doctor
 
 From a release wheel:
 ```bash
-uv tool install reviewbuddy-0.1.0-py3-none-any.whl
+uv tool install reviewbuddy-0.1.1-py3-none-any.whl
 reviewbuddy doctor
 ```
 
@@ -94,7 +94,7 @@ The repository now includes:
 
 Behavior:
 - CI runs on pushes and pull requests.
-- Release runs when you push a tag like `v0.1.0`.
+- Release runs when you push a tag like `v0.1.1`.
 - The release workflow builds `dist/` artifacts and attaches them to a GitHub Release.
 
 ## Production push flow
@@ -108,8 +108,8 @@ git push origin <branch>
 
 Create a tagged release:
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 After the tag push:
