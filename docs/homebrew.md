@@ -32,10 +32,10 @@ reviewbuddy tap export --output-dir /absolute/path/to/homebrew-reviewbuddy
 
 ## Publish flow
 
-1. Create and push a tagged release in the source repo, for example `v0.1.0`.
+1. Create and push a tagged release in the source repo, for example `v0.1.1`.
 2. Compute the release tarball SHA:
    ```bash
-   curl -L https://github.com/<owner>/reviewbuddy/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
+   curl -L https://github.com/<owner>/reviewbuddy/archive/refs/tags/v0.1.1.tar.gz | shasum -a 256
    ```
 3. Update `Formula/reviewbuddy.rb` with the real `sha256`.
 4. Validate the tap:
