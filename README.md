@@ -106,7 +106,8 @@ scripts/reviewbuddy commands --agent
 ```
 
 Agent operating rules:
-- Prefer `scripts/reviewbuddy` over raw `uv run reviewbuddy`.
+- Prefer `scripts/reviewbuddy` over raw `uv tool run --from . reviewbuddy`.
+- The local wrapper delegates to `uv tool run --from . reviewbuddy`.
 - Use `scripts/reviewbuddy ask <run_id> "<question>"` for previous-session follow-up questions without re-crawling.
 - Treat a failing `doctor` command as a hard stop for production use.
 - This repository currently ships as a packaged CLI, not a hosted web service.

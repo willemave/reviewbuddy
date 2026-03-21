@@ -21,7 +21,7 @@ Use this skill when the task is about installing ReviewBuddy, running it, asking
 
 ## Operating Rules
 
-- Prefer the `scripts/reviewbuddy` wrapper over calling `uv run reviewbuddy` directly unless the user specifically wants the raw command.
+- Prefer the `scripts/reviewbuddy` wrapper over calling `uv tool run --from . reviewbuddy` directly unless the user specifically wants the raw command.
 - Before debugging a broken runtime, run `scripts/reviewbuddy doctor`.
 - ReviewBuddy currently ships cleanly as a packaged CLI, not a hosted web service.
 - The runtime depends on the external `codex` CLI. If `doctor` fails on `codex`, do not treat the environment as production-ready.
