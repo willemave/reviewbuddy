@@ -34,13 +34,15 @@ class SearchProvider(Protocol):
 def build_search_provider(settings: Settings) -> SearchProvider:
     """Build the configured search provider."""
 
-    if settings.search_provider == "exa":
+    provider_name = settings.get_effective_search_provider()
+
+    if provider_name == "exa":
         return ExaSearchProvider(
             api_key=settings.exa_api_key,
             search_type=settings.exa_search_type,
             user_location=settings.exa_user_location,
         )
-    if settings.search_provider == "tavily":
+    if provider_name == "tavily":
         return TavilySearchProvider(
             api_key=settings.tavily_api_key,
             search_depth=settings.tavily_search_depth,

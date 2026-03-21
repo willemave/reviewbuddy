@@ -23,6 +23,19 @@ def test_build_search_provider_returns_configured_provider() -> None:
     assert provider.provider_name == "firecrawl"
 
 
+def test_build_search_provider_auto_selects_available_provider() -> None:
+    settings = Settings(
+        exa_api_key="",
+        tavily_api_key="tvly-key",
+        firecrawl_api_key="",
+    )
+
+    provider = build_search_provider(settings)
+
+    assert isinstance(provider, TavilySearchProvider)
+    assert provider.provider_name == "tavily"
+
+
 @pytest.mark.asyncio
 async def test_exa_provider_parses_markdown_content() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:

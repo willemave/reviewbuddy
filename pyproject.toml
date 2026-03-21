@@ -9,7 +9,6 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "aiosqlite>=0.20.0",
     "httpx>=0.28.0",
-    "openai>=1.0.0",
     "openai-whisper>=20250625",
     "praw>=7.7.1",
     "pypdf>=5.4.0",

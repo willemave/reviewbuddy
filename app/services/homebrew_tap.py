@@ -118,7 +118,9 @@ def render_formula(request: TapExportRequest) -> str:
       Additional runtime setup:
         - Install Playwright browsers after bootstrap if `reviewbuddy doctor` reports they are missing
         - Install and authenticate codex: codex login
-        - Set OPENAI_API_KEY and one search provider key (EXA_API_KEY, TAVILY_API_KEY, or FIRECRAWL_API_KEY)
+        - Set at least one search provider key (EXA_API_KEY, TAVILY_API_KEY, or FIRECRAWL_API_KEY)
+        - Optionally set SEARCH_PROVIDER to override auto-selection
+        - ReviewBuddy also auto-loads provider config from ~/.hermes/.env and ~/.openclaw/openclaw.json
         - Run `reviewbuddy doctor` before first use
 
       Tap maintenance skill:
@@ -260,8 +262,11 @@ def render_skill_publishing_reference(request: TapExportRequest) -> str:
 - Playwright browsers are installed after brew install with:
   - `$(brew --prefix)/opt/reviewbuddy/libexec/bin/python -m playwright install`
 - Required environment:
-  - `OPENAI_API_KEY`
   - one search provider key: `EXA_API_KEY`, `TAVILY_API_KEY`, or `FIRECRAWL_API_KEY`
+  - optional override: `SEARCH_PROVIDER`
+- Additional auto-detected config sources:
+  - `~/.hermes/.env`
+  - `~/.openclaw/openclaw.json`
 """
 
 

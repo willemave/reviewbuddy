@@ -1,14 +1,19 @@
 """Application configuration using pydantic-settings."""
 
+import json
+import os
+from collections.abc import MutableMapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.constants import APP_NAME, APP_VERSION, DEFAULT_DB_PATH, DEFAULT_STORAGE_DIR
+
+SearchProviderName = Literal["exa", "tavily", "firecrawl"]
 
 
 class Settings(BaseSettings):
@@ -29,7 +34,7 @@ class Settings(BaseSettings):
     storage_path: Path = DEFAULT_STORAGE_DIR
 
     # External APIs
-    search_provider: Literal["exa", "tavily", "firecrawl"] = "exa"
+    search_provider: SearchProviderName = "exa"
     search_num_results: int = Field(default=30, ge=1, le=100)
     search_min_results_per_query: int = Field(default=20, ge=1, le=100)
     exa_api_key: str = ""
@@ -130,6 +135,48 @@ class Settings(BaseSettings):
     synthesis_final_hard_max_tokens: int = Field(default=200000, ge=4000, le=400000)
     synthesis_final_max_sources: int = Field(default=18, ge=1, le=80)
 
+    def get_effective_search_provider(self) -> SearchProviderName:
+        """Return the active search provider, auto-selecting from configured keys when possible."""
+
+        if "search_provider" in self.model_fields_set:
+            return self.search_provider
+
+        detected = self.detect_search_provider_from_keys()
+        if detected is not None:
+            return detected
+        return self.search_provider
+
+    def get_search_provider_key_name(self, provider: SearchProviderName | None = None) -> str:
+        """Return the environment variable name for a search provider API key."""
+
+        selected_provider = provider or self.get_effective_search_provider()
+        return {
+            "exa": "EXA_API_KEY",
+            "tavily": "TAVILY_API_KEY",
+            "firecrawl": "FIRECRAWL_API_KEY",
+        }[selected_provider]
+
+    def get_search_provider_api_key(self, provider: SearchProviderName | None = None) -> str:
+        """Return the configured API key for a search provider."""
+
+        selected_provider = provider or self.get_effective_search_provider()
+        return {
+            "exa": self.exa_api_key,
+            "tavily": self.tavily_api_key,
+            "firecrawl": self.firecrawl_api_key,
+        }[selected_provider].strip()
+
+    def detect_search_provider_from_keys(self) -> SearchProviderName | None:
+        """Return the first provider that has a configured API key."""
+
+        if self.exa_api_key.strip():
+            return "exa"
+        if self.tavily_api_key.strip():
+            return "tavily"
+        if self.firecrawl_api_key.strip():
+            return "firecrawl"
+        return None
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -145,3 +192,84 @@ def _load_env() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     env_path = repo_root / ".env"
     load_dotenv(env_path, override=True)
+    load_agent_search_env(Path.home())
+
+
+def load_agent_search_env(
+    home_dir: Path,
+    env: MutableMapping[str, str] | None = None,
+) -> None:
+    """Load search-provider settings from Hermes and OpenClaw config files.
+
+    Args:
+        home_dir: User home directory.
+        env: Mapping to update. Defaults to `os.environ`.
+    """
+
+    target_env = env if env is not None else os.environ
+    _load_hermes_env(home_dir / ".hermes" / ".env", target_env)
+    _load_openclaw_config(home_dir / ".openclaw" / "openclaw.json", target_env)
+
+
+def _load_hermes_env(env_path: Path, target_env: MutableMapping[str, str]) -> None:
+    if not env_path.exists():
+        return
+
+    values = dotenv_values(env_path)
+    for key in (
+        "SEARCH_PROVIDER",
+        "EXA_API_KEY",
+        "EXA_SEARCH_TYPE",
+        "TAVILY_API_KEY",
+        "FIRECRAWL_API_KEY",
+    ):
+        value = values.get(key)
+        if isinstance(value, str) and value.strip() and key not in target_env:
+            target_env[key] = value.strip()
+
+
+def _load_openclaw_config(config_path: Path, target_env: MutableMapping[str, str]) -> None:
+    if not config_path.exists():
+        return
+
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+
+    tools = payload.get("tools")
+    if not isinstance(tools, dict):
+        return
+    web = tools.get("web")
+    if not isinstance(web, dict):
+        return
+    search = web.get("search")
+    if not isinstance(search, dict):
+        return
+
+    provider = search.get("provider")
+    if provider not in {"exa", "tavily", "firecrawl"}:
+        return
+
+    provider_config = search.get(provider)
+    if not isinstance(provider_config, dict):
+        return
+
+    api_key = provider_config.get("apiKey")
+    if not isinstance(api_key, str) or not api_key.strip():
+        return
+
+    target_env.setdefault("SEARCH_PROVIDER", provider)
+    target_env.setdefault(
+        {
+            "exa": "EXA_API_KEY",
+            "tavily": "TAVILY_API_KEY",
+            "firecrawl": "FIRECRAWL_API_KEY",
+        }[provider],
+        api_key.strip(),
+    )
+
+    if provider == "exa":
+        search_type = provider_config.get("type")
+        if isinstance(search_type, str) and search_type.strip():
+            target_env.setdefault("EXA_SEARCH_TYPE", search_type.strip())

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,8 +30,8 @@ def run_doctor_checks(settings: Settings) -> list[DoctorCheck]:
     """
 
     checks = [
-        _check_env_var("OPENAI_API_KEY"),
         _check_search_provider(settings),
+        _check_agent_hosts(),
         _check_local_agent_harness(settings),
         _check_binary("uv", "uv"),
         _check_binary("ffmpeg", "ffmpeg"),
@@ -67,24 +66,41 @@ def has_doctor_failures(checks: list[DoctorCheck]) -> bool:
     return any(not check.ok for check in checks)
 
 
-def _check_env_var(name: str) -> DoctorCheck:
-    value = os.getenv(name, "").strip()
-    if value:
-        return DoctorCheck(name=name, ok=True, detail="set")
-    return DoctorCheck(name=name, ok=False, detail="missing")
-
-
 def _check_search_provider(settings: Settings) -> DoctorCheck:
-    provider = settings.search_provider
-    key_name = {
-        "exa": "EXA_API_KEY",
-        "tavily": "TAVILY_API_KEY",
-        "firecrawl": "FIRECRAWL_API_KEY",
-    }[provider]
-    value = os.getenv(key_name, "").strip()
+    detected_provider = settings.detect_search_provider_from_keys()
+    provider = settings.get_effective_search_provider()
+    key_name = settings.get_search_provider_key_name(provider)
+    value = settings.get_search_provider_api_key(provider)
     if value:
-        return DoctorCheck(name=f"{provider} provider", ok=True, detail=f"{key_name} set")
+        if "search_provider" in settings.model_fields_set:
+            detail = f"{key_name} set (explicit provider)"
+        elif detected_provider == provider:
+            detail = f"{key_name} set (auto-selected provider)"
+        else:
+            detail = f"{key_name} set"
+        return DoctorCheck(name=f"{provider} provider", ok=True, detail=detail)
+    if detected_provider is None:
+        return DoctorCheck(
+            name="search provider",
+            ok=False,
+            detail="no provider API key configured (set EXA_API_KEY, TAVILY_API_KEY, or FIRECRAWL_API_KEY)",
+        )
     return DoctorCheck(name=f"{provider} provider", ok=False, detail=f"{key_name} missing")
+
+
+def _check_agent_hosts() -> DoctorCheck:
+    home_dir = Path.home()
+    openclaw_dir = home_dir / ".openclaw"
+    hermes_dir = home_dir / ".hermes"
+
+    detected = []
+    if openclaw_dir.exists():
+        detected.append(f"openclaw: {openclaw_dir}")
+    if hermes_dir.exists():
+        detected.append(f"hermes: {hermes_dir}")
+    if detected:
+        return DoctorCheck(name="agent host", ok=True, detail=", ".join(detected))
+    return DoctorCheck(name="agent host", ok=True, detail="not detected (optional)")
 
 
 def _check_binary(name: str, binary: str) -> DoctorCheck:

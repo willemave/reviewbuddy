@@ -25,6 +25,7 @@ from app.models.review import (
 )
 from app.services.followup import answer_followup_question, load_followup_memory
 from app.services.homebrew_tap import detect_github_remote, export_tap_repository
+from app.services.setup_runtime import format_setup_report, has_setup_failures, run_setup
 from app.services.storage import fetch_run, fetch_run_stats, resolve_run_dir
 from app.workflows.review import run_review
 
@@ -45,6 +46,12 @@ OUTPUT_DIR_OPTION = typer.Option(None, help="Base output directory")
 PLANNER_MODEL_OPTION = typer.Option(None, help="Override model for the lane planner agent")
 SUB_AGENT_MODEL_OPTION = typer.Option(None, help="Override model for sub-agents")
 TAP_OUTPUT_OPTION = typer.Option(None, help="Output directory for the generated Homebrew tap repo")
+STATS_OPTION = typer.Option(False, "--stats", help="Print run statistics before the synthesis")
+INSTALL_PLAYWRIGHT_OPTION = typer.Option(
+    True,
+    "--install-playwright/--skip-playwright",
+    help="Install Playwright browsers during setup",
+)
 
 
 @dataclass
@@ -127,6 +134,7 @@ def run(
     output_dir: Path = OUTPUT_DIR_OPTION,
     planner_model: str | None = PLANNER_MODEL_OPTION,
     sub_agent_model: str | None = SUB_AGENT_MODEL_OPTION,
+    stats: bool = STATS_OPTION,
 ) -> None:
     """Run a review research workflow."""
 
@@ -149,7 +157,11 @@ def run(
 
     console.print(Panel.fit("ReviewBuddy complete", style="green"))
     console.print(f"Run ID: {result.run_id}")
-    console.print(f"Fetched {result.stats.fetched}/{result.stats.total_urls} URLs")
+    if stats:
+        console.print(
+            f"Fetched {result.stats.fetched}/{result.stats.total_urls} URLs"
+            f" ({result.stats.failed} failed)"
+        )
     console.print()
     console.print(result.synthesis_markdown)
 
@@ -174,6 +186,20 @@ def doctor() -> None:
     checks = run_doctor_checks(settings)
     console.print(format_doctor_report(checks))
     if has_doctor_failures(checks):
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def setup(
+    install_playwright: bool = INSTALL_PLAYWRIGHT_OPTION,
+) -> None:
+    """Prepare the local environment to run ReviewBuddy."""
+
+    result = run_setup(settings, install_playwright=install_playwright)
+    console.print(format_setup_report(result.actions))
+    console.print()
+    console.print(format_doctor_report(result.doctor_checks))
+    if has_setup_failures(result.actions) or has_doctor_failures(result.doctor_checks):
         raise typer.Exit(code=1)
 
 

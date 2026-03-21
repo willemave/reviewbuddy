@@ -10,8 +10,8 @@ Use this skill when the task is about installing ReviewBuddy, running it, asking
 ## Quick Start
 
 1. Run `scripts/reviewbuddy commands --agent` to see the current command surface.
-2. Run `scripts/reviewbuddy doctor` before using ReviewBuddy in a new environment.
-3. Use `scripts/reviewbuddy run "<prompt>"` for a one-shot research run.
+2. Run `scripts/reviewbuddy setup` in a new environment, then rerun `scripts/reviewbuddy doctor` if setup reports any failure.
+3. Start long `scripts/reviewbuddy run "<prompt>"` jobs in the background, capture the PID, and redirect logs to a file so the agent can keep working while the crawl runs.
 4. Use `scripts/reviewbuddy ask <run_id> "<question>"` when the user wants a follow-up answer from a previous session without re-crawling.
 
 ## Read These References As Needed
@@ -23,6 +23,10 @@ Use this skill when the task is about installing ReviewBuddy, running it, asking
 
 - Prefer the `scripts/reviewbuddy` wrapper over calling `uv tool run --from . reviewbuddy` directly unless the user specifically wants the raw command.
 - Before debugging a broken runtime, run `scripts/reviewbuddy doctor`.
+- For long research runs, launch ReviewBuddy in the background. Recommended pattern:
+  `scripts/reviewbuddy run "<prompt>" > /tmp/reviewbuddy.log 2>&1 & echo $!`
+- Save the printed PID and inspect the redirected log file instead of blocking the agent session on foreground output.
+- Only pass `--stats` to `run` when the user explicitly wants fetched/failed URL counts in the terminal output.
 - ReviewBuddy currently ships cleanly as a packaged CLI, not a hosted web service.
 - The runtime depends on the external `codex` CLI. If `doctor` fails on `codex`, do not treat the environment as production-ready.
 - If `doctor` fails on `ffmpeg`, follow the OS-specific install steps in `references/troubleshooting.md`, verify with `ffmpeg -version`, then rerun `scripts/reviewbuddy doctor`.

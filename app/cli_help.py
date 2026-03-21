@@ -19,10 +19,11 @@ class CliCommandHelp:
 CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
     CliCommandHelp(
         name="run",
-        usage='reviewbuddy run "<prompt>"',
+        usage='reviewbuddy run "<prompt>" [--stats]',
         summary="Execute a new one-shot research run and print the synthesis.",
         details=(
             "Runs planning, search, crawl, synthesis, and writes artifacts under data/storage/<run_id>/.",
+            "Use --stats when you also want the fetched/failed URL counts printed in the terminal output.",
             "Best when you want a final answer in a single command.",
         ),
         examples=('reviewbuddy run "best dishwasher for quiet apartment"',),
@@ -46,6 +47,16 @@ CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
             "Points to the markdown reference files under docs/.",
         ),
         examples=("reviewbuddy commands --agent",),
+    ),
+    CliCommandHelp(
+        name="setup",
+        usage="reviewbuddy setup [--skip-playwright]",
+        summary="Prepare the local machine to run the CLI, then rerun doctor checks.",
+        details=(
+            "Persists detected search-provider settings into the local .env when possible.",
+            "Creates the storage/database paths and optionally installs Playwright browsers.",
+        ),
+        examples=("reviewbuddy setup",),
     ),
     CliCommandHelp(
         name="doctor",

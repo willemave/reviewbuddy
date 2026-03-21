@@ -4,10 +4,11 @@ Primary entry points:
 - Installed command: `reviewbuddy`
 - Local wrapper: `scripts/reviewbuddy`
 
-## `reviewbuddy run "<prompt>"`
+## `reviewbuddy run "<prompt>" [--stats]`
 Execute a new one-shot research run and print the synthesis.
 
 - Runs planning, search, crawl, synthesis, and writes artifacts under `data/storage/<run_id>/`.
+- Use `--stats` when you also want the fetched/failed URL counts printed in the terminal output.
 - Best when you want a final answer in a single command.
 
 Example:
@@ -30,6 +31,15 @@ Print a compact command reference.
 
 Example:
 - `reviewbuddy commands --agent`
+
+## `reviewbuddy setup [--skip-playwright]`
+Prepare the local machine to run the CLI, then rerun doctor checks.
+
+- Persists detected search-provider settings into the local `.env` when possible.
+- Creates the storage/database paths and optionally installs Playwright browsers.
+
+Example:
+- `reviewbuddy setup`
 
 ## `reviewbuddy doctor`
 Check whether the current machine is ready to run the CLI.
