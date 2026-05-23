@@ -21,7 +21,7 @@ The current Python app is a local CLI with one main workflow:
 Core facts from the repo:
 - The real entrypoint is `app/cli.py`.
 - The real orchestration lives in `app/workflows/review.py`.
-- Storage is local SQLite plus filesystem artifacts under `data/storage/<run_id>/`.
+- Storage is local SQLite plus filesystem artifacts under `~/.researchbuddy/storage/<run_id>/` by default.
 - “Agents” are not a framework; they are prompt wrappers around a local coding-agent subprocess (`codex`, `claude`, `amp`).
 - The repo docs contain stale references to another project. Do not port those assumptions.
 
@@ -295,7 +295,7 @@ Build:
 
 Acceptance:
 - create/read run records
-- write run bundles under `data/storage/<run_id>/`
+- write run bundles under `~/.researchbuddy/storage/<run_id>/` by default
 - parity with current output filenames where worth keeping
 
 ### Phase 3: Port Search Layer

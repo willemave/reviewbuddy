@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import shutil
+import asyncio
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.cli_doctor import DoctorCheck, run_doctor_checks
 from app.core.settings import Settings, get_settings
+from app.services.storage import init_db
 
 
 @dataclass(frozen=True)
@@ -97,7 +99,7 @@ def _check_search_config(settings: Settings) -> SetupAction:
             ok=False,
             detail=(
                 "no configured provider key available "
-                "(set local .env, process env, ~/.hermes/.env, or ~/.openclaw/openclaw.json)"
+                "(set local .env, process env, ~/.hermes/.env, ~/.openclaw/.env, or ~/.openclaw/openclaw.json)"
             ),
         )
     return SetupAction(
@@ -116,38 +118,36 @@ def _prepare_storage(path: Path) -> SetupAction:
 
 
 def _prepare_database(path: Path) -> SetupAction:
-    parent = path.parent
     try:
-        parent.mkdir(parents=True, exist_ok=True)
-        path.touch(exist_ok=True)
+        asyncio.run(init_db(path))
     except OSError as exc:
         return SetupAction(name="database path", ok=False, detail=f"{path} ({exc})")
     return SetupAction(name="database path", ok=True, detail=str(path))
 
 
 def _install_playwright(workspace_root: Path | None) -> SetupAction:
-    if workspace_root is None:
-        return SetupAction(
-            name="playwright browsers",
-            ok=True,
-            detail="skipped because no local workspace root was found",
-        )
-    uv_path = shutil.which("uv")
-    if uv_path is None:
-        return SetupAction(name="playwright browsers", ok=False, detail="uv not found in PATH")
+    command = [sys.executable, "-m", "playwright", "install", "chromium"]
+    cwd = workspace_root
 
     try:
         completed = subprocess.run(
-            [uv_path, "run", "playwright", "install"],
-            check=True,
+            command,
+            check=False,
             capture_output=True,
-            cwd=workspace_root,
+            cwd=cwd,
             text=True,
         )
-    except subprocess.CalledProcessError as exc:
-        error_text = (exc.stderr or exc.stdout or "").strip() or "install failed"
-        return SetupAction(name="playwright browsers", ok=False, detail=error_text)
+    except OSError as exc:
+        return SetupAction(name="playwright browsers", ok=False, detail=f"install failed ({exc})")
 
     output = (completed.stdout or completed.stderr or "").strip()
+    if completed.returncode != 0:
+        detail = _summarize_command_output(completed.stdout, completed.stderr) or "install failed"
+        return SetupAction(name="playwright browsers", ok=False, detail=detail)
     detail = output.splitlines()[-1] if output else "installed"
     return SetupAction(name="playwright browsers", ok=True, detail=detail)
+
+
+def _summarize_command_output(stdout: str, stderr: str) -> str:
+    lines = [line.strip() for line in (*stdout.splitlines(), *stderr.splitlines()) if line.strip()]
+    return " | ".join(lines[:3])

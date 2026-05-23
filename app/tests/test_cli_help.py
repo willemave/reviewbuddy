@@ -13,6 +13,10 @@ from app.services.setup_runtime import SetupAction, SetupResult
 runner = CliRunner()
 
 
+async def _noop_init_db(_db_path) -> None:  # noqa: ANN001
+    return None
+
+
 def _run_record(run_id: str = "run-123", status: str = "completed") -> RunRecord:
     return RunRecord(
         run_id=run_id,
@@ -104,7 +108,8 @@ def test_skills_install_openclaw_workspace_json(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["status"] == "installed"
     assert payload["target_path"] == str(workspace_path / "skills" / "research")
-    assert (workspace_path / "skills" / "research").is_symlink()
+    assert not (workspace_path / "skills" / "research").is_symlink()
+    assert (workspace_path / "skills" / "research" / "SKILL.md").is_file()
 
 
 def test_old_run_command_is_not_registered() -> None:
@@ -125,6 +130,7 @@ def test_list_command_lists_recent_runs_and_current_marker(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "list_runs", fake_list_runs)
     monkeypatch.setattr(cli, "fetch_current_run_id", fake_current)
+    monkeypatch.setattr(cli, "init_db", _noop_init_db)
 
     result = runner.invoke(cli.app, ["list", "--limit", "5"])
 
@@ -144,6 +150,7 @@ def test_list_command_prints_json(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "list_runs", fake_list_runs)
     monkeypatch.setattr(cli, "fetch_current_run_id", fake_current)
+    monkeypatch.setattr(cli, "init_db", _noop_init_db)
 
     result = runner.invoke(cli.app, ["list", "--json"])
 
@@ -392,6 +399,7 @@ def test_doctor_command_fix_runs_setup_and_reports_results(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "run_setup", fake_run_setup)
     monkeypatch.setattr(cli, "list_in_progress_runs", fake_in_progress)
+    monkeypatch.setattr(cli, "init_db", _noop_init_db)
 
     result = runner.invoke(cli.app, ["doctor", "--fix", "--skip-playwright"])
 

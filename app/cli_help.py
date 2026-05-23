@@ -26,7 +26,7 @@ CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
         details=(
             "Refuses to start when another ResearchBuddy run is already active.",
             "Returns the run ID, PID, log path, and exact status/watch commands.",
-            "Writes artifacts under data/storage/<run_id>/.",
+            "Writes artifacts under ~/.researchbuddy/storage/<run_id>/ by default.",
             "Use --json when another agent or script needs the startup response.",
             "Use --mode to force product-review, restaurant, or general-research behavior instead of automatic prompt inference.",
             "Use --prompt-file only when you explicitly want to read the prompt from a UTF-8 text file.",
@@ -103,14 +103,14 @@ CLI_COMMANDS: tuple[CliCommandHelp, ...] = (
         name="skills install",
         usage=(
             "researchbuddy skills install openclaw "
-            "[--scope shared|workspace] [--method symlink|copy] [--json]"
+            "[--scope shared|workspace] [--method auto|symlink|copy] [--json]"
         ),
         summary="Install the bundled research skill into OpenClaw.",
         details=(
             "Defaults to a shared install at ~/.openclaw/skills/research.",
             "Use --scope workspace to install into <workspace>/skills/research.",
-            "Uses a symlink by default so Homebrew upgrades update the installed skill.",
-            "Use --method copy only when the target agent cannot follow symlinks.",
+            "Uses --method auto by default: shared installs use a symlink, workspace installs use a copy.",
+            "Use --method symlink only when the target OpenClaw config allows that symlink target.",
             "Refuses to replace an existing different skill unless --force is passed.",
             "Use --dry-run to preview the install plan without writing.",
             "Use --json for scripts and agents.",

@@ -11,7 +11,7 @@ from dotenv import dotenv_values, load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.constants import APP_NAME, APP_VERSION, DEFAULT_DB_PATH, DEFAULT_STORAGE_DIR
+from app.constants import APP_NAME, APP_VERSION, default_data_dir
 
 SearchProviderName = Literal["exa", "tavily", "firecrawl"]
 
@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     app_version: str = APP_VERSION
 
     # Storage
-    database_path: Path = DEFAULT_DB_PATH
-    storage_path: Path = DEFAULT_STORAGE_DIR
+    database_path: Path = Field(default_factory=lambda: default_data_dir() / "researchbuddy.db")
+    storage_path: Path = Field(default_factory=lambda: default_data_dir() / "storage")
 
     # External APIs
     search_provider: SearchProviderName = "exa"
@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     semantic_dedupe_enabled: bool = True
     semantic_embedding_model_id: str = "Qwen/Qwen3-Embedding-0.6B"
     semantic_embedding_device: str = "auto"
+    semantic_embedding_local_files_only: bool = True
     semantic_embedding_max_length: int = Field(default=512, ge=32, le=32768)
     semantic_embedding_batch_size: int = Field(default=16, ge=1, le=256)
     semantic_query_similarity_threshold: float = Field(default=0.92, ge=0.0, le=1.0)
@@ -225,6 +226,7 @@ def load_agent_search_env(
 
     target_env = env if env is not None else os.environ
     _load_hermes_env(home_dir / ".hermes" / ".env", target_env)
+    _load_openclaw_env(home_dir / ".openclaw" / ".env", target_env)
     _load_openclaw_config(home_dir / ".openclaw" / "openclaw.json", target_env)
 
 
@@ -242,7 +244,30 @@ def _load_hermes_env(env_path: Path, target_env: MutableMapping[str, str]) -> No
     ):
         value = values.get(key)
         if isinstance(value, str) and value.strip() and key not in target_env:
-            target_env[key] = value.strip()
+            cleaned = value.strip()
+            if key == "SEARCH_PROVIDER" and cleaned not in {"exa", "tavily", "firecrawl"}:
+                continue
+            target_env[key] = cleaned
+
+
+def _load_openclaw_env(env_path: Path, target_env: MutableMapping[str, str]) -> None:
+    if not env_path.exists():
+        return
+
+    values = dotenv_values(env_path)
+    for key in (
+        "SEARCH_PROVIDER",
+        "EXA_API_KEY",
+        "EXA_SEARCH_TYPE",
+        "TAVILY_API_KEY",
+        "FIRECRAWL_API_KEY",
+    ):
+        value = values.get(key)
+        if isinstance(value, str) and value.strip() and key not in target_env:
+            cleaned = value.strip()
+            if key == "SEARCH_PROVIDER" and cleaned not in {"exa", "tavily", "firecrawl"}:
+                continue
+            target_env[key] = cleaned
 
 
 def _load_openclaw_config(config_path: Path, target_env: MutableMapping[str, str]) -> None:
@@ -254,28 +279,11 @@ def _load_openclaw_config(config_path: Path, target_env: MutableMapping[str, str
     except (OSError, json.JSONDecodeError):
         return
 
-    tools = payload.get("tools")
-    if not isinstance(tools, dict):
-        return
-    web = tools.get("web")
-    if not isinstance(web, dict):
-        return
-    search = web.get("search")
-    if not isinstance(search, dict):
+    resolved = _resolve_openclaw_search_provider(payload, target_env)
+    if resolved is None:
         return
 
-    provider = search.get("provider")
-    if provider not in {"exa", "tavily", "firecrawl"}:
-        return
-
-    provider_config = search.get(provider)
-    if not isinstance(provider_config, dict):
-        return
-
-    api_key = provider_config.get("apiKey")
-    if not isinstance(api_key, str) or not api_key.strip():
-        return
-
+    provider, api_key = resolved
     target_env.setdefault("SEARCH_PROVIDER", provider)
     target_env.setdefault(
         {
@@ -287,6 +295,102 @@ def _load_openclaw_config(config_path: Path, target_env: MutableMapping[str, str
     )
 
     if provider == "exa":
-        search_type = provider_config.get("type")
+        search_type = _resolve_openclaw_exa_search_type(payload)
         if isinstance(search_type, str) and search_type.strip():
             target_env.setdefault("EXA_SEARCH_TYPE", search_type.strip())
+
+
+def _resolve_openclaw_search_provider(
+    payload: dict,
+    target_env: MutableMapping[str, str],
+) -> tuple[SearchProviderName, str] | None:
+    explicit_provider = _read_nested(payload, ("tools", "web", "search", "provider"))
+    if explicit_provider in {"exa", "tavily", "firecrawl"}:
+        provider_order: tuple[SearchProviderName, ...] = (explicit_provider,)
+    else:
+        provider_order = ("exa", "tavily", "firecrawl")
+
+    for provider in provider_order:
+        api_key = _resolve_openclaw_provider_api_key(payload, provider, target_env)
+        if api_key:
+            return provider, api_key
+    return None
+
+
+def _resolve_openclaw_provider_api_key(
+    payload: dict,
+    provider: SearchProviderName,
+    target_env: MutableMapping[str, str],
+) -> str | None:
+    candidates = [
+        ("plugins", "entries", provider, "config", "webSearch", "apiKey"),
+        ("tools", "web", "search", provider, "apiKey"),
+    ]
+    if provider == "firecrawl":
+        candidates.extend(
+            [
+                ("plugins", "entries", "firecrawl", "config", "webFetch", "apiKey"),
+                ("tools", "web", "fetch", "firecrawl", "apiKey"),
+            ]
+        )
+    if _read_nested(payload, ("tools", "web", "search", "provider")) == provider:
+        candidates.append(("tools", "web", "search", "apiKey"))
+
+    for path in candidates:
+        api_key = _resolve_secret_value(_read_nested(payload, path), target_env)
+        if api_key:
+            return api_key
+    return None
+
+
+def _resolve_openclaw_exa_search_type(payload: dict) -> str | None:
+    candidates = (
+        ("plugins", "entries", "exa", "config", "webSearch", "type"),
+        ("tools", "web", "search", "exa", "type"),
+    )
+    for path in candidates:
+        value = _read_nested(payload, path)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _read_nested(payload: object, path: tuple[str, ...]) -> object:
+    current = payload
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _resolve_secret_value(
+    value: object,
+    target_env: MutableMapping[str, str],
+) -> str | None:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if cleaned.startswith("secretref-env:"):
+            return _resolve_env_secret(cleaned.removeprefix("secretref-env:"), target_env)
+        return cleaned
+    if not isinstance(value, dict):
+        return None
+    if value.get("source") != "env":
+        return None
+    env_name = value.get("id")
+    if not isinstance(env_name, str):
+        return None
+    return _resolve_env_secret(env_name, target_env)
+
+
+def _resolve_env_secret(env_name: str, target_env: MutableMapping[str, str]) -> str | None:
+    cleaned_name = env_name.strip()
+    if not cleaned_name:
+        return None
+    value = target_env.get(cleaned_name) or os.environ.get(cleaned_name)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None

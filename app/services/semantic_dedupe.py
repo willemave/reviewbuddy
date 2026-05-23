@@ -75,8 +75,15 @@ def _load_embedding_model(model_id: str, device: str):
         raise SemanticEmbeddingError("Transformers and torch are required for semantic dedupe") from exc
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
-        model = AutoModel.from_pretrained(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            padding_side="left",
+            local_files_only=settings.semantic_embedding_local_files_only,
+        )
+        model = AutoModel.from_pretrained(
+            model_id,
+            local_files_only=settings.semantic_embedding_local_files_only,
+        )
         model.to(device)
         model.eval()
     except Exception as exc:  # noqa: BLE001

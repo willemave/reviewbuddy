@@ -265,9 +265,9 @@ SKILL_SCOPE_OPTION = typer.Option(
     help="Install scope: shared or workspace.",
 )
 SKILL_METHOD_OPTION = typer.Option(
-    "symlink",
+    "auto",
     "--method",
-    help="Install method: symlink or copy.",
+    help="Install method: auto, symlink, or copy.",
 )
 SKILL_SOURCE_OPTION = typer.Option(
     None,
@@ -547,6 +547,7 @@ def _tail_text(path: Path, max_lines: int) -> str:
 async def _run_status_payload(run_id: str, output_dir: Path | None = None) -> dict[str, object]:
     """Build a status payload for one run."""
 
+    await init_db(settings.database_path)
     run_record = await fetch_run(settings.database_path, run_id)
     if run_record is None:
         console.print(f"Run not found: {run_id}")
@@ -604,12 +605,14 @@ def _parse_skill_scope(value: str) -> SkillInstallScope:
     raise typer.BadParameter("scope must be one of: shared, workspace")
 
 
-def _parse_skill_method(value: str) -> SkillInstallMethod:
+def _parse_skill_method(value: str, scope: SkillInstallScope) -> SkillInstallMethod:
     """Parse a skill install method option."""
 
+    if value == "auto":
+        return "copy" if scope == "workspace" else "symlink"
     if value in {"symlink", "copy"}:
         return cast(SkillInstallMethod, value)
-    raise typer.BadParameter("method must be one of: symlink, copy")
+    raise typer.BadParameter("method must be one of: auto, symlink, copy")
 
 
 def _print_skill_install_result(result: SkillInstallResult) -> None:
@@ -699,6 +702,7 @@ async def _load_followup_state_for_run(
         typer.Exit: If the run or saved synthesis cannot be found.
     """
 
+    await init_db(settings.database_path)
     run_record = await fetch_run(settings.database_path, run_id)
     if run_record is None:
         console.print(f"Run not found: {run_id}")
@@ -864,6 +868,7 @@ def list_command(
     """List saved runs with current-run context."""
 
     async def _run() -> None:
+        await init_db(settings.database_path)
         records = await list_runs(settings.database_path, limit=limit)
         current_run_id = await fetch_current_run_id(settings.database_path)
         if json_output:
@@ -996,6 +1001,7 @@ def doctor(
 
     async def _repair_stale_runs() -> int:
         repaired = 0
+        await init_db(settings.database_path)
         for run_record in await list_in_progress_runs(settings.database_path):
             runtime = await fetch_run_runtime(settings.database_path, run_record.run_id)
             if runtime is not None and _pid_is_running(runtime.pid):
@@ -1057,7 +1063,7 @@ def install_agent_skill(
         _exit_with_command_guidance("skills install", reason="agent must be openclaw.")
     try:
         parsed_scope = _parse_skill_scope(scope)
-        parsed_method = _parse_skill_method(method)
+        parsed_method = _parse_skill_method(method, parsed_scope)
     except typer.BadParameter as exc:
         _exit_with_command_guidance("skills install", reason=str(exc))
 

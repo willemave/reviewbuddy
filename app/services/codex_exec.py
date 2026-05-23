@@ -22,6 +22,8 @@ settings = get_settings()
 T = TypeVar("T", bound=BaseModel)
 
 SUPPORTED_LOCAL_AGENT_HARNESSES = frozenset({"codex", "claude", "amp"})
+RESEARCHBUDDY_CODEX_HOME_ENV = "RESEARCHBUDDY_CODEX_HOME"
+RESEARCHBUDDY_CLAUDE_CONFIG_DIR_ENV = "RESEARCHBUDDY_CLAUDE_CONFIG_DIR"
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,7 @@ def _run_codex_harness(
             command=command,
             cwd=cwd,
             timeout_seconds=timeout_seconds,
+            env=local_agent_env("codex"),
         )
     finally:
         if schema_path is not None:
@@ -261,6 +264,7 @@ def _run_claude_harness(
         command=command,
         cwd=cwd,
         timeout_seconds=timeout_seconds,
+        env=local_agent_env("claude"),
     )
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
@@ -308,6 +312,7 @@ def _run_amp_harness(
         command=command,
         cwd=cwd,
         timeout_seconds=timeout_seconds,
+        env=local_agent_env("amp"),
     )
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
@@ -375,6 +380,7 @@ def _run_custom_harness(
             cwd=cwd,
             timeout_seconds=timeout_seconds,
             shell=True,
+            env=local_agent_env(harness.name),
         )
     finally:
         _safe_unlink(prompt_path)
@@ -479,6 +485,7 @@ def _run_subprocess(
     cwd: str,
     timeout_seconds: int,
     shell: bool = False,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -489,6 +496,7 @@ def _run_subprocess(
             text=True,
             timeout=timeout_seconds,
             shell=shell,
+            env=env,
         )
     except FileNotFoundError as exc:
         raise CodexNotInstalledError("No supported local agent executable found") from exc
@@ -531,6 +539,22 @@ def _resolve_local_agent_harness(settings_obj: Settings) -> LocalAgentHarness:
 
     searched = ", ".join(settings_obj.agent_exec_candidates)
     raise CodexNotInstalledError(f"No supported local agent executable found. Checked: {searched}")
+
+
+def local_agent_env(harness_name: str) -> dict[str, str]:
+    env = os.environ.copy()
+    home = Path.home()
+
+    if harness_name == "codex":
+        env["CODEX_HOME"] = env.get(RESEARCHBUDDY_CODEX_HOME_ENV, str(home / ".codex"))
+    elif harness_name == "claude":
+        claude_config_dir = env.get(RESEARCHBUDDY_CLAUDE_CONFIG_DIR_ENV)
+        if claude_config_dir:
+            env["CLAUDE_CONFIG_DIR"] = claude_config_dir
+        else:
+            env.setdefault("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+
+    return env
 
 
 def _resolved_exec_path(settings_obj: Settings) -> str | None:

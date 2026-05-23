@@ -6,7 +6,7 @@ This repository is production-ready as a packaged CLI.
 
 It is not yet a generic hosted web service:
 - There is no FastAPI or frontend entrypoint in the current tree.
-- Core agent execution depends on the external `codex` CLI in [app/services/codex_exec.py](/Users/willem/Development/reviewbuddy/app/services/codex_exec.py).
+- Core agent execution depends on the external `codex` CLI in `app/services/codex_exec.py`.
 - Any runtime that executes ResearchBuddy must have `codex` installed and authenticated.
 
 For bots, the shortest path is:
@@ -24,7 +24,7 @@ brew tap willemave/researchbuddy
 brew install researchbuddy
 
 Before asking for any new search-provider key, check ~/.openclaw/openclaw.json.
-If exa, tavily, or firecrawl is already configured there, ask whether ResearchBuddy should reuse that existing provider/key.
+If exa, tavily, or firecrawl is already configured there under the current plugin credential paths or legacy `tools.web.search` paths, ask whether ResearchBuddy should reuse that existing provider/key.
 If the user says yes, do not ask for a duplicate secret. Let ResearchBuddy doctor --fix use the OpenClaw config without copying credentials into ResearchBuddy .env.
 
 researchbuddy doctor
@@ -77,7 +77,7 @@ researchbuddy doctor
 
 From a release wheel:
 ```bash
-uv tool install researchbuddy-0.1.6-py3-none-any.whl
+uv tool install researchbuddy-0.1.7-py3-none-any.whl
 researchbuddy doctor
 ```
 

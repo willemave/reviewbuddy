@@ -10,6 +10,7 @@ from app.services.codex_exec import (
     CodexExecError,
     CodexNotInstalledError,
     detect_local_agent_harness,
+    local_agent_env,
     run_codex_prompt_sync,
 )
 
@@ -170,3 +171,33 @@ def test_detect_local_agent_harness_prefers_available_binary(monkeypatch) -> Non
     resolved = detect_local_agent_harness(Settings(agent_exec_candidates=["amp", "codex"]))
 
     assert resolved == ("amp", "/usr/bin/amp")
+
+
+def test_local_agent_env_defaults_codex_home_to_user_config(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CODEX_HOME", "/tmp/openclaw-isolated-codex-home")
+    monkeypatch.delenv("RESEARCHBUDDY_CODEX_HOME", raising=False)
+    monkeypatch.setattr("app.services.codex_exec.Path.home", lambda: tmp_path)
+
+    env = local_agent_env("codex")
+
+    assert env["CODEX_HOME"] == str(tmp_path / ".codex")
+
+
+def test_local_agent_env_allows_explicit_codex_home_override(monkeypatch, tmp_path: Path) -> None:
+    custom_codex_home = tmp_path / "custom-codex"
+    monkeypatch.setenv("CODEX_HOME", "/tmp/openclaw-isolated-codex-home")
+    monkeypatch.setenv("RESEARCHBUDDY_CODEX_HOME", str(custom_codex_home))
+
+    env = local_agent_env("codex")
+
+    assert env["CODEX_HOME"] == str(custom_codex_home)
+
+
+def test_local_agent_env_defaults_claude_config_to_user_config(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("RESEARCHBUDDY_CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr("app.services.codex_exec.Path.home", lambda: tmp_path)
+
+    env = local_agent_env("claude")
+
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / ".claude")

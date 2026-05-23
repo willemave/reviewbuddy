@@ -101,28 +101,30 @@ def render_formula(request: TapExportRequest) -> str:
   depends_on "uv"
 
   def install
+    pkgshare.install "constraints.txt"
+    pkgshare.install "skills"
+    pkgshare.install "docs"
+
     (bin/"researchbuddy").write <<~SH
       #!/usr/bin/env bash
       set -euo pipefail
       export RESEARCHBUDDY_SKILL_DIR="#{{opt_pkgshare}}/skills/research"
-      exec "#{{Formula["uv"].opt_bin}}/uv" tool run --from "{bootstrap_url}" researchbuddy "$@"
+      exec "#{{Formula["uv"].opt_bin}}/uv" tool run --python "3.11" --constraints "#{{opt_pkgshare}}/constraints.txt" --from "{bootstrap_url}" researchbuddy "$@"
     SH
-    pkgshare.install "skills"
-    pkgshare.install "docs"
   end
 
   def caveats
     <<~EOS
       ResearchBuddy bootstraps the tagged CLI package through uv on first run:
-        #{{Formula["uv"].opt_bin}}/uv tool run --from "{bootstrap_url}" researchbuddy
+        #{{Formula["uv"].opt_bin}}/uv tool run --python 3.11 --constraints "#{{opt_pkgshare}}/constraints.txt" --from "{bootstrap_url}" researchbuddy
 
       Additional runtime setup:
-        - Install Playwright browsers after bootstrap if `researchbuddy doctor` reports they are missing
+        - Run `researchbuddy doctor --fix` to create local state and install Playwright browsers into the uv tool runtime
         - Install and authenticate codex: codex login
-        - Configure at least one search provider key through environment, ~/.hermes/.env, ~/.openclaw/openclaw.json, or manual ResearchBuddy .env
+        - Configure at least one search provider key through environment, ~/.hermes/.env, ~/.openclaw/.env plus ~/.openclaw/openclaw.json, or manual ResearchBuddy .env
         - Optionally set SEARCH_PROVIDER to override auto-selection
         - In OpenClaw, first check ~/.openclaw/openclaw.json and reuse an existing exa/tavily/firecrawl key when the user approves
-        - ResearchBuddy auto-loads provider config from ~/.hermes/.env and ~/.openclaw/openclaw.json without copying credentials
+        - ResearchBuddy auto-loads provider config from ~/.hermes/.env, ~/.openclaw/.env, and ~/.openclaw/openclaw.json without copying credentials
         - Install the OpenClaw skill with: researchbuddy skills install openclaw --scope shared
         - Run `researchbuddy doctor` before first use
 
@@ -132,7 +134,9 @@ def render_formula(request: TapExportRequest) -> str:
   end
 
   test do
-    assert_match "tool run --from", (bin/"researchbuddy").read
+    assert_match "tool run --python", (bin/"researchbuddy").read
+    assert_match "--constraints", (bin/"researchbuddy").read
+    assert_path_exists pkgshare/"constraints.txt"
     assert_path_exists pkgshare/"skills/research/SKILL.md"
   end
 end
@@ -162,23 +166,27 @@ If another formula with the same name ever exists, use the fully qualified name:
 brew install {short_tap}/{formula_name}
 ```
 
-If you are installing into OpenClaw, check `~/.openclaw/openclaw.json` before asking for search-provider credentials. When it already has `exa`, `tavily`, or `firecrawl` configured, ask whether ResearchBuddy should reuse that existing provider/key and let `researchbuddy doctor --fix` auto-load it without copying credentials.
+If you are installing into OpenClaw, check `~/.openclaw/openclaw.json` before asking for search-provider credentials. When it already has `exa`, `tavily`, or `firecrawl` configured under `plugins.entries.<provider>.config.webSearch.apiKey` or the legacy `tools.web.search` paths, ask whether ResearchBuddy should reuse that existing provider/key and let `researchbuddy doctor --fix` auto-load it without copying credentials.
 
 ## Update the formula for a new ResearchBuddy release
 
 1. Create and push a new tagged release in the source repo, for example `v{request.version}`.
-2. Download the release tarball and compute its SHA256:
+2. Regenerate `constraints.txt` from the source lockfile:
+   ```bash
+   uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o constraints.txt
+   ```
+3. Download the release tarball and compute its SHA256:
    ```bash
    curl -L {build_source_tarball_url(request)} | shasum -a 256
    ```
-3. Update `Formula/{formula_name}.rb` with the new `url` and `sha256`.
-4. Validate locally:
+4. Update `Formula/{formula_name}.rb` with the new `url` and `sha256`.
+5. Validate locally:
    ```bash
    brew audit --strict --online {formula_name}
    brew install --build-from-source ./Formula/{formula_name}.rb
    brew test {formula_name}
    ```
-5. Commit and push the tap repo.
+6. Commit and push the tap repo.
 
 ## Skill
 
@@ -250,27 +258,29 @@ def render_skill_publishing_reference(request: TapExportRequest) -> str:
    ```bash
    curl -L {source_url} | shasum -a 256
    ```
-3. Update the formula fields:
+3. Regenerate `constraints.txt` from the source `uv.lock` and ensure the formula installs it.
+4. Update the formula fields:
    - `url`
    - `sha256`
-4. Validate:
+5. Validate:
    ```bash
    brew audit --strict --online researchbuddy
    brew install --build-from-source ./Formula/researchbuddy.rb
    brew test researchbuddy
    ```
-5. Commit and push the tap changes.
+6. Commit and push the tap changes.
 
 ## Runtime Notes
 
 - `researchbuddy` still needs `codex` installed and authenticated.
-- Playwright browsers are installed after brew install with:
-  - `$(brew --prefix)/opt/researchbuddy/libexec/bin/python -m playwright install`
+- Playwright browsers are installed into the uv tool runtime by `researchbuddy doctor --fix`.
+- The Homebrew wrapper passes `--constraints "$(brew --prefix)/opt/researchbuddy/share/researchbuddy/constraints.txt"` so first-run uv resolution stays aligned with the source lockfile.
 - Required environment:
   - one search provider key: `EXA_API_KEY`, `TAVILY_API_KEY`, or `FIRECRAWL_API_KEY`
   - optional override: `SEARCH_PROVIDER`
 - Additional auto-detected config sources:
   - `~/.hermes/.env`
+  - `~/.openclaw/.env`
   - `~/.openclaw/openclaw.json`
 """
 

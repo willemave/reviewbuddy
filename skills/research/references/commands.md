@@ -19,7 +19,7 @@ Options:
 - `--max-agents INTEGER`: cap parallel agents.
 - `--headful` / `--no-headful`: allow or disable headful browser fallback.
 - `--timeout-ms INTEGER`: navigation timeout.
-- `--output-dir PATH`: base output directory.
+- `--output-dir PATH`: base output directory; defaults to `~/.researchbuddy/storage`.
 - `--planner-model TEXT`: override the planner model.
 - `--sub-agent-model TEXT`: override sub-agent models.
 - `--json`: print machine-readable startup output.
@@ -86,13 +86,13 @@ Options:
 - Installs the bundled `research` skill into OpenClaw.
 - Defaults to a shared symlink at `~/.openclaw/skills/research`.
 - Use the shared scope for all OpenClaw agents on the machine.
-- Use workspace scope for one OpenClaw workspace only.
+- Use workspace scope for one OpenClaw workspace only; the default `auto` method copies there because OpenClaw rejects workspace symlinks unless the target path is explicitly allowed.
 - Refuses to replace an existing different skill unless `--force` is passed.
 
 Options:
 - `--scope shared|workspace`: choose `~/.openclaw/skills` or `<workspace>/skills`.
 - `--workspace PATH`: workspace path when `--scope workspace` is used.
-- `--method symlink|copy`: default symlink; copy only when symlinks are unsupported.
+- `--method auto|symlink|copy`: default `auto`; shared uses symlink and workspace uses copy.
 - `--source PATH`: explicit skill directory containing `SKILL.md`.
 - `--force`: replace an existing target skill.
 - `--dry-run`: preview the target and source without writing.

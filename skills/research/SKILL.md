@@ -12,7 +12,7 @@ Use this skill when the task is about using ResearchBuddy for research, installi
 1. Install with `brew tap willemave/researchbuddy` and `brew install researchbuddy` unless the user explicitly wants a source checkout.
 2. Run `researchbuddy --help` to confirm the installed command surface.
 3. For OpenClaw, install this skill with `researchbuddy skills install openclaw --scope shared`, or use `--scope workspace --workspace /path/to/workspace` for one workspace only.
-4. In OpenClaw environments, inspect `~/.openclaw/openclaw.json` before asking for search-provider credentials. If it already has `tools.web.search.provider` set to `exa`, `tavily`, or `firecrawl` with that provider's `apiKey`, ask once whether ResearchBuddy should reuse it.
+4. In OpenClaw environments, inspect `~/.openclaw/openclaw.json` before asking for search-provider credentials. If it already has `plugins.entries.<provider>.config.webSearch.apiKey`, legacy `tools.web.search.<provider>.apiKey`, or `tools.web.search.apiKey` for `exa`, `tavily`, or `firecrawl`, ask once whether ResearchBuddy should reuse it.
 5. If the user approves reuse, do not ask them to paste a duplicate API key. Run `researchbuddy doctor --fix`; ResearchBuddy auto-loads OpenClaw config and does not copy provider credentials into local `.env`.
 6. If OpenClaw has no usable provider config, or the user declines reuse, ask for one provider key and set it through the runtime environment or local `.env`, then rerun `researchbuddy doctor --fix`.
 7. Start long research jobs with `researchbuddy start "<prompt>" --json`; the command returns immediately with the run ID, PID, status command, watch command, and log path.
@@ -50,12 +50,12 @@ Read `references/commands.md` before using less-common options such as `--prompt
 
 ## Config Model
 
-- ResearchBuddy is env-driven. It reads process environment variables, `~/.hermes/.env`, `~/.openclaw/openclaw.json`, and local `.env`.
+- ResearchBuddy is env-driven. It reads process environment variables, `~/.hermes/.env`, `~/.openclaw/.env`, `~/.openclaw/openclaw.json`, and local `.env`.
 - Shared agent configs are canonical for search-provider credentials; local `.env` is only for manual fallback config.
 - `researchbuddy doctor --fix` validates detected search-provider config, prepares storage/database, installs Playwright browsers, and repairs stale runs. It does not copy provider credentials into `.env`.
 - Homebrew installs should not edit files under the Homebrew prefix or uv cache for config.
 
 ## Outputs
 
-- Run artifacts are written under `data/storage/<run_id>/`.
+- Run artifacts are written under `~/.researchbuddy/storage/<run_id>/` by default.
 - Key files are `synthesis.md`, `worker.log`, `run.log`, and the `html/` / `markdown/` crawl artifacts.

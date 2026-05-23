@@ -1,10 +1,22 @@
 """Application constants."""
 
+import os
 from pathlib import Path
 
 APP_NAME = "ResearchBuddy"
-APP_VERSION = "0.1.6"
-DEFAULT_DATA_DIR = Path("./data")
+APP_VERSION = "0.1.7"
+
+
+def default_data_dir() -> Path:
+    """Return the default per-user ResearchBuddy state directory."""
+
+    configured = os.environ.get("RESEARCHBUDDY_HOME", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".researchbuddy"
+
+
+DEFAULT_DATA_DIR = default_data_dir()
 DEFAULT_STORAGE_DIR = DEFAULT_DATA_DIR / "storage"
 DEFAULT_DB_PATH = DEFAULT_DATA_DIR / "researchbuddy.db"
 

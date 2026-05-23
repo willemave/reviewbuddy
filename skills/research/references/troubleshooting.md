@@ -40,8 +40,10 @@ Symptom:
 
 OpenClaw-first fix:
 - Inspect `~/.openclaw/openclaw.json` for:
-  - `tools.web.search.provider`
-  - `tools.web.search.<provider>.apiKey`
+  - `plugins.entries.<provider>.config.webSearch.apiKey`
+  - legacy `tools.web.search.<provider>.apiKey`
+  - legacy `tools.web.search.apiKey` with `tools.web.search.provider`
+- ResearchBuddy also reads `~/.openclaw/.env` when those config values are env SecretRefs.
 - Supported providers are `exa`, `tavily`, and `firecrawl`.
 - Ask once whether ResearchBuddy should reuse that provider/key.
 - If approved, run `researchbuddy doctor --fix` so ResearchBuddy loads OpenClaw config without copying credentials into local `.env`.
@@ -54,3 +56,21 @@ Manual fix:
 - Rerun `researchbuddy doctor`.
 
 Do not store provider secrets in skill files, docs, or chat logs.
+
+## Playwright browsers missing
+
+Symptom:
+- `researchbuddy doctor` reports `playwright browsers` failed.
+
+Fix:
+- Run `researchbuddy doctor --fix`.
+- The fix installs Chromium into the same Python/uv tool runtime that executes ResearchBuddy.
+
+## Unexpected files in an OpenClaw workspace
+
+Symptom:
+- ResearchBuddy created `data/researchbuddy.db` or `data/storage` inside a repo or OpenClaw workspace.
+
+Fix:
+- Upgrade ResearchBuddy and run `researchbuddy doctor --fix`.
+- Current releases default to `~/.researchbuddy`; set `RESEARCHBUDDY_HOME` when a different per-user state directory is required.

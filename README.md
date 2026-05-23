@@ -39,7 +39,7 @@ brew tap willemave/researchbuddy && brew install researchbuddy
 
 # Or from source
 git clone https://github.com/willemave/researchbuddy && cd researchbuddy
-uv sync && uv run playwright install
+uv sync && uv run playwright install chromium
 
 # Validate
 researchbuddy doctor         # validate everything is ready
@@ -52,7 +52,7 @@ researchbuddy watch --timeout 900
 researchbuddy followup "What were the strongest recommendations?"
 ```
 
-Each run writes artifacts to `data/storage/<run_id>/` including `synthesis.md` (the final report), per-lane snapshots, captured source material, and follow-up memory.
+Each run writes artifacts to `~/.researchbuddy/storage/<run_id>/` by default, including `synthesis.md` (the final report), per-lane snapshots, captured source material, and follow-up memory. Set `RESEARCHBUDDY_HOME` or pass `--output-dir` when you need an explicit alternate location.
 
 ---
 
@@ -121,7 +121,7 @@ ResearchBuddy uses a **hierarchical task decomposition** architecture. The pipel
 ```bash
 researchbuddy start "<prompt>" [--mode auto|product|restaurant|research] [--json]
 ```
-Start a research run in the background, make it current, and write all artifacts to `data/storage/<run_id>/`.
+Start a research run in the background, make it current, and write all artifacts to `~/.researchbuddy/storage/<run_id>/` by default.
 
 ```bash
 researchbuddy status [--run-id RUN_ID] [--json]
@@ -153,12 +153,14 @@ ResearchBuddy requires **one search provider API key**. If `SEARCH_PROVIDER` is 
 
 It also auto-loads search settings from local agent installs:
 - **Hermes:** `~/.hermes/.env`
+- **OpenClaw env refs:** `~/.openclaw/.env`
 - **OpenClaw:** `~/.openclaw/openclaw.json`
 
 Hermes/OpenClaw search config is treated as the shared credential source and is not copied into ResearchBuddy `.env`. Copy `.env.example` to `.env` only for manual fallback configuration. Common settings:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
+| `RESEARCHBUDDY_HOME` | `~/.researchbuddy` | Per-user state directory for the SQLite DB and run artifacts |
 | `SEARCH_PROVIDER` | auto | `exa`, `tavily`, or `firecrawl` |
 | `EXA_API_KEY` | -- | Exa search key |
 | `TAVILY_API_KEY` | -- | Tavily search key |
@@ -170,15 +172,16 @@ Hermes/OpenClaw search config is treated as the shared credential source and is 
 | `YOUTUBE_MAX_VIDEOS` | `6` | YouTube transcript cap |
 | `PODCAST_MAX_EPISODES` | `4` | Podcast episode cap |
 | `WHISPER_MODEL` | `base` | Local Whisper model size |
+| `SEMANTIC_EMBEDDING_LOCAL_FILES_ONLY` | `true` | Avoid runtime Hugging Face downloads for semantic dedupe; falls back gracefully when the model is not cached |
 
 ---
 
 ## Output
 
-Each run produces a research bundle at `data/storage/<run_id>/`:
+Each run produces a research bundle at `~/.researchbuddy/storage/<run_id>/` by default:
 
 ```
-data/storage/<run_id>/
+~/.researchbuddy/storage/<run_id>/
   synthesis.md              # final cited report
   run.log                   # detailed execution log
   followup_memory.json      # persisted evidence for Q&A

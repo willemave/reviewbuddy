@@ -32,10 +32,13 @@ def test_render_formula_includes_expected_tap_metadata(tmp_path: Path) -> None:
     assert 'depends_on "ffmpeg"' in formula
     assert 'depends_on "uv"' in formula
     assert 'export RESEARCHBUDDY_SKILL_DIR="#{opt_pkgshare}/skills/research"' in formula
+    assert 'pkgshare.install "constraints.txt"' in formula
     assert 'pkgshare.install "skills"' in formula
+    assert '--python "3.11" --constraints "#{opt_pkgshare}/constraints.txt"' in formula
+    assert 'assert_path_exists pkgshare/"constraints.txt"' in formula
     assert 'assert_path_exists pkgshare/"skills/research/SKILL.md"' in formula
     assert "researchbuddy skills install openclaw --scope shared" in formula
-    assert 'uv" tool run --from "git+https://github.com/willemave/researchbuddy.git@v0.1.1"' in formula
+    assert '--from "git+https://github.com/willemave/researchbuddy.git@v0.1.1"' in formula
     assert "~/.openclaw/openclaw.json" in formula
 
 

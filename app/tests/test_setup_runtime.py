@@ -1,7 +1,9 @@
+import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.core.settings import Settings
-from app.services.setup_runtime import run_setup
+from app.services.setup_runtime import _install_playwright, run_setup
 
 
 class FakeSettingsLoader:
@@ -47,6 +49,9 @@ def test_run_setup_uses_detected_provider_without_copying_credentials(
     assert not (workspace_root / ".env").exists()
     assert (workspace_root / "data" / "storage").is_dir()
     assert (workspace_root / "data" / "researchbuddy.db").exists()
+    with sqlite3.connect(workspace_root / "data" / "researchbuddy.db") as conn:
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'")
+        assert cursor.fetchone() == ("runs",)
 
 
 def test_run_setup_fails_when_no_provider_key_is_available(
@@ -78,3 +83,38 @@ def test_run_setup_fails_when_no_provider_key_is_available(
 
     assert result.actions[0].ok is False
     assert "no configured provider key" in result.actions[0].detail
+
+
+def test_install_playwright_uses_current_python_without_workspace(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):  # noqa: ANN001, ANN202
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0, stdout="installed\n", stderr="")
+
+    monkeypatch.setattr("app.services.setup_runtime.subprocess.run", fake_run)
+    monkeypatch.setattr("app.services.setup_runtime.sys.executable", "/tmp/python")
+
+    action = _install_playwright(None)
+
+    assert action.ok is True
+    assert action.detail == "installed"
+    assert captured["args"][0] == ["/tmp/python", "-m", "playwright", "install", "chromium"]
+    assert captured["kwargs"]["cwd"] is None
+
+
+def test_install_playwright_reports_failure_summary(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.setup_runtime.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(  # noqa: ARG005
+            returncode=1,
+            stdout="",
+            stderr="one\ntwo\nthree\nfour\n",
+        ),
+    )
+
+    action = _install_playwright(None)
+
+    assert action.ok is False
+    assert action.detail == "one | two | three"

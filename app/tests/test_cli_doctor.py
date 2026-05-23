@@ -274,6 +274,41 @@ def test_run_doctor_checks_accepts_logged_in_status_from_stderr(
     assert codex_checks[0].detail == "Logged in using ChatGPT"
 
 
+def test_run_doctor_checks_uses_user_codex_home_for_auth_probe(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-exa")
+    monkeypatch.setenv("CODEX_HOME", "/tmp/openclaw-isolated-codex-home")
+    monkeypatch.setattr("app.cli_doctor.shutil.which", lambda binary: f"/usr/bin/{binary}")
+    monkeypatch.setattr("app.cli_doctor.Path.home", lambda: tmp_path)
+    monkeypatch.setattr("app.services.codex_exec.Path.home", lambda: tmp_path)
+    _patch_playwright_check(monkeypatch)
+    monkeypatch.setattr(
+        "app.cli_doctor.detect_local_agent_harness",
+        lambda _settings: ("codex", "/usr/bin/codex"),
+    )
+
+    def fake_run(*args, **kwargs):  # noqa: ANN001, ARG001
+        assert kwargs["env"]["CODEX_HOME"] == str(tmp_path / ".codex")
+        return SimpleNamespace(returncode=0, stdout="Logged in using ChatGPT\n", stderr="")
+
+    monkeypatch.setattr("app.cli_doctor.subprocess.run", fake_run)
+
+    settings = Settings(
+        exa_api_key="test-exa",
+        tavily_api_key="",
+        firecrawl_api_key="",
+        storage_path=tmp_path / "storage",
+        database_path=tmp_path / "db" / "researchbuddy.db",
+    )
+
+    checks = run_doctor_checks(settings)
+
+    codex_checks = [check for check in checks if check.name == "codex auth"]
+    assert len(codex_checks) == 1
+    assert codex_checks[0].ok is True
+
+
 def test_check_playwright_browser_reports_failure_when_launch_fails(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.cli_doctor.subprocess.run",
@@ -289,6 +324,30 @@ def test_check_playwright_browser_reports_failure_when_launch_fails(monkeypatch)
     assert check.name == "playwright browsers"
     assert check.ok is False
     assert "researchbuddy doctor --fix" in check.detail
+
+
+def test_check_playwright_browser_summarizes_traceback_action(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.cli_doctor.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(  # noqa: ARG005
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Traceback (most recent call last):\n"
+                '  File "<string>", line 3, in <module>\n'
+                "playwright._impl._errors.Error: BrowserType.launch: Executable doesn't exist\n"
+                "Please run the following command to download new browsers:\n"
+                "    playwright install\n"
+            ),
+        ),
+    )
+
+    check = _check_playwright_browser()
+
+    assert check.ok is False
+    assert "Traceback" not in check.detail
+    assert "Executable doesn't exist" in check.detail
+    assert "playwright install" in check.detail
 
 
 def test_check_playwright_browser_reports_success(monkeypatch) -> None:

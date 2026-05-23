@@ -133,7 +133,7 @@ Notes:
 
 - `docs/agent-cli-reference.md`: flat command reference tuned for agents/scripts.
 - `docs/cli-reference.md`: human-oriented CLI reference.
-- `docs/deploy.md`: packaging/deploy notes, but contains stale `reviewbuddy` path references and still describes the app as a packaged CLI rather than a service.
+- `docs/deploy.md`: packaging/deploy notes for the packaged CLI production shape.
 - `docs/homebrew.md`: Homebrew publishing workflow and install instructions.
 
 ## Scripts
@@ -158,9 +158,9 @@ These are present in the working tree but are generated state, not primary sourc
 
 - `app/**/__pycache__/`: compiled Python bytecode caches.
 - `data/`: local runtime persistence.
-- `data/researchbuddy.db`: current SQLite database for saved runs.
+- `~/.researchbuddy/researchbuddy.db`: default SQLite database for saved runs.
 - `data/reviewbuddy.db`: stale/legacy database name that suggests an earlier rename from `reviewbuddy` to `researchbuddy`.
-- `data/storage/<run_id>/`: many saved research run bundles; each directory contains run logs, synthesis, lane artifacts, captured HTML/markdown, and transcript files.
+- `~/.researchbuddy/storage/<run_id>/`: default saved research run bundles; each directory contains run logs, synthesis, lane artifacts, captured HTML/markdown, and transcript files.
 - `dist/`: built package artifacts.
 - `dist/reviewbuddy-0.1.0-py3-none-any.whl`: stale wheel artifact under the old app name.
 - `dist/reviewbuddy-0.1.0.tar.gz`: stale source distribution under the old app name.

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.settings import Settings
-from app.services.codex_exec import detect_local_agent_harness
+from app.services.codex_exec import detect_local_agent_harness, local_agent_env
 
 DOCTOR_CODEX_AUTH_TIMEOUT_SECONDS = 10
 DOCTOR_PLAYWRIGHT_TIMEOUT_SECONDS = 20
@@ -172,6 +172,7 @@ def _check_codex_auth(executable: str) -> DoctorCheck:
             capture_output=True,
             text=True,
             timeout=DOCTOR_CODEX_AUTH_TIMEOUT_SECONDS,
+            env=local_agent_env("codex"),
         )
     except OSError as exc:
         return DoctorCheck(name="codex auth", ok=False, detail=f"status check failed ({exc})")
@@ -237,8 +238,38 @@ def _check_playwright_browser() -> DoctorCheck:
 
 
 def _summarize_command_output(stdout: str, stderr: str) -> str:
-    lines = [line.strip() for line in (*stdout.splitlines(), *stderr.splitlines()) if line.strip()]
-    return " | ".join(lines[:2])
+    lines = [_clean_command_line(line) for line in (*stdout.splitlines(), *stderr.splitlines())]
+    lines = [line for line in lines if line]
+    actionable_lines = [line for line in lines if _is_actionable_command_line(line)]
+    if actionable_lines:
+        return " | ".join(actionable_lines[:3])
+
+    filtered_lines = [line for line in lines if not _is_traceback_noise_line(line)]
+    return " | ".join((filtered_lines or lines)[:3])
+
+
+def _clean_command_line(line: str) -> str:
+    return line.strip().strip("║").strip()
+
+
+def _is_actionable_command_line(line: str) -> bool:
+    lowered = line.lower()
+    return (
+        "error:" in lowered
+        or "executable doesn't exist" in lowered
+        or "please run" in lowered
+        or "playwright install" in lowered
+        or "not logged in" in lowered
+        or "logged in" in lowered
+    )
+
+
+def _is_traceback_noise_line(line: str) -> bool:
+    if line.startswith(("Traceback ", 'File "', "raise ", "return ", "await ", "self.")):
+        return True
+    if set(line) <= {"^", " ", "-"}:
+        return True
+    return line.startswith(("╔", "╚", "═"))
 
 
 def _check_storage_path(path: Path) -> DoctorCheck:

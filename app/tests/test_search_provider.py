@@ -25,7 +25,9 @@ def test_build_search_provider_returns_configured_provider() -> None:
     assert provider.provider_name == "firecrawl"
 
 
-def test_build_search_provider_auto_selects_available_provider() -> None:
+def test_build_search_provider_auto_selects_available_provider(monkeypatch) -> None:
+    monkeypatch.delenv("SEARCH_PROVIDER", raising=False)
+
     settings = Settings(
         exa_api_key="",
         tavily_api_key="tvly-key",

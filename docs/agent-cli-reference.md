@@ -10,7 +10,7 @@ Purpose: Start a new research prompt in the background and make it current.
 Behavior:
 - Refuses to start when another ResearchBuddy run is already active.
 - Returns the run ID, PID, log path, and exact status/watch commands.
-- Writes artifacts under `data/storage/<run_id>/`.
+- Writes artifacts under `~/.researchbuddy/storage/<run_id>/` by default.
 - Use `--json` for machine-readable startup output.
 - Use `--prompt-file` for file-backed prompts.
 Example:
@@ -59,12 +59,12 @@ Example:
 - `researchbuddy doctor --fix`
 
 ## skills install
-Usage: `researchbuddy skills install openclaw [--scope shared|workspace] [--method symlink|copy] [--json]`
+Usage: `researchbuddy skills install openclaw [--scope shared|workspace] [--method auto|symlink|copy] [--json]`
 Purpose: Install the bundled research skill into OpenClaw.
 Behavior:
 - Defaults to a shared install at `~/.openclaw/skills/research`.
 - Use `--scope workspace` to install into `<workspace>/skills/research`.
-- Uses a symlink by default so Homebrew upgrades update the installed skill.
+- Uses `--method auto` by default: shared installs use a symlink, workspace installs use a copy.
 - Refuses to replace an existing different skill unless `--force` is passed.
 - Use `--dry-run` to preview the install plan without writing.
 - Use `--json` for machine-readable output.
